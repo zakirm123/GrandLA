@@ -1,891 +1,136 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Grand Larceny Auto | Blacktop Interactive</title>
-
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grand Larceny Auto 1 - Blacktop City</title>
 <style>
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:#111;font-family:Arial,Helvetica,sans-serif;color:#fff}
+  #game,#game canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+  .hidden{display:none!important}
 
-html, body, #game {
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-    background: #071b2b;
-    font-family: Arial, sans-serif;
-}
+  /* ---------- menu ---------- */
+  #menu{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(ellipse at center,rgba(20,24,32,.78),rgba(5,6,10,.94))}
+  .panel{width:min(520px,92vw);max-height:92vh;overflow:auto;padding:28px 30px;background:rgba(18,20,26,.92);
+    border:1px solid #ffffff22;border-radius:6px;box-shadow:0 10px 50px #000a}
+  h1{margin:0;font:900 44px Impact,'Arial Black',sans-serif;letter-spacing:3px;line-height:1;color:#ffd21f;text-shadow:3px 3px 0 #000}
+  .sub{margin:4px 0 22px;letter-spacing:6px;font-size:12px;opacity:.7}
+  button{display:block;width:100%;margin:8px 0;padding:13px;font:bold 15px Arial;letter-spacing:2px;color:#fff;
+    background:#262a33;border:1px solid #ffffff33;border-radius:4px;cursor:pointer}
+  button:hover{background:#ffd21f;color:#000}
+  .controls{margin-top:18px;font-size:12px;line-height:1.7;opacity:.75}
+  .controls b{color:#ffd21f}
+  label{display:block;margin:16px 0 6px;font-size:13px;letter-spacing:1px}
+  select,input[type=range]{width:100%}
+  select{padding:9px;background:#262a33;color:#fff;border:1px solid #ffffff33;border-radius:4px}
+  h2{margin:0 0 10px;letter-spacing:3px;color:#ffd21f}
+  .news-item{padding:12px 0;border-bottom:1px solid #ffffff1a}
+  .news-item h3{margin:0 0 4px;font-size:15px}
+  .news-item:first-child h3{color:#ff4a55}
+  .news-item p{margin:0;font-size:13px;line-height:1.5;opacity:.8}
 
-canvas {
-    display: block;
-}
+  /* ---------- map ---------- */
+  #map-overlay{position:fixed;inset:0;z-index:35;background:#10202b}
+  #map-canvas{position:absolute;inset:0;width:100%;height:100%}
+  #map-title{position:absolute;top:16px;left:24px;font:900 26px Impact,sans-serif;letter-spacing:3px;color:#ffd21f;text-shadow:2px 2px 0 #000}
+  #map-close{position:absolute;top:14px;right:20px;width:auto;padding:10px 22px;margin:0}
+  #map-hint{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);font-size:12px;opacity:.8;background:#0008;padding:6px 14px;border-radius:4px}
 
-/* LOADING SCREEN */
+  /* ---------- HUD ---------- */
+  #speed{position:fixed;right:26px;bottom:22px;font:900 34px Impact,sans-serif;text-shadow:2px 2px 0 #000;z-index:10}
+  #prompt{position:fixed;left:50%;bottom:16%;transform:translateX(-50%);font:bold 16px Arial;letter-spacing:2px;text-shadow:0 0 4px #000;z-index:10}
+  #zone{position:fixed;left:22px;bottom:20px;font:bold 15px Arial;letter-spacing:3px;text-transform:uppercase;text-shadow:0 0 4px #000;z-index:10}
+  #camtag{position:fixed;left:22px;top:16px;font-size:11px;letter-spacing:2px;opacity:.65;z-index:10;text-shadow:0 0 3px #000}
+  #crosshair{position:fixed;left:50%;top:50%;width:8px;height:8px;margin:-4px 0 0 -4px;border:2px solid #fff;border-radius:50%;opacity:.7;z-index:10;display:none}
+  #keys{position:fixed;left:22px;top:36px;font-size:11px;line-height:1.6;opacity:.55;z-index:10;text-shadow:0 0 3px #000}
 
-#loading {
-    position: fixed;
-    inset: 0;
-    z-index: 10;
-    background: #080b12;
-    color: white;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    transition: opacity 0.8s;
-}
-
-#loading h1 {
-    font-size: clamp(25px, 5vw, 48px);
-    letter-spacing: 5px;
-    text-align: center;
-}
-
-#loading h2 {
-    margin-top: 12px;
-    color: #e7a94b;
-    letter-spacing: 8px;
-    font-size: 18px;
-}
-
-#studio {
-    margin-top: 65px;
-    color: #999;
-    letter-spacing: 5px;
-    font-size: 12px;
-}
-
-#loading-status {
-    margin-top: 30px;
-    color: #ddd;
-    font-size: 13px;
-}
-
-#loading-track {
-    width: 240px;
-    height: 5px;
-    background: #333;
-    margin-top: 15px;
-}
-
-#loading-progress {
-    width: 0%;
-    height: 100%;
-    background: #e7a94b;
-    transition: width 0.3s;
-}
-
-/* GAME INTERFACE */
-
-#ui {
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    color: white;
-}
-
-#brand {
-    position: absolute;
-    top: 22px;
-    left: 25px;
-    font-size: 20px;
-    font-weight: 900;
-    letter-spacing: 3px;
-    text-shadow: 2px 2px 5px black;
-}
-
-#location {
-    position: absolute;
-    top: 52px;
-    left: 25px;
-    color: #e7c27b;
-    font-size: 12px;
-    letter-spacing: 3px;
-}
-
-#controls {
-    position: absolute;
-    bottom: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0,0,0,0.65);
-    padding: 12px 18px;
-    border-radius: 6px;
-    font-size: 11px;
-    white-space: nowrap;
-}
-
-#start-message {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: rgba(0,0,0,0.8);
-    padding: 20px 35px;
-    border: 1px solid #e7a94b;
-    font-weight: bold;
-    letter-spacing: 3px;
-}
-
-#crosshair {
-    display: none;
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    font-size: 25px;
-}
-
-#footer {
-    position: absolute;
-    bottom: 15px;
-    right: 20px;
-    color: rgba(255,255,255,0.6);
-    font-size: 10px;
-    letter-spacing: 2px;
-}
-
+  /* ---------- police HUD (Update 1.1) ---------- */
+  #police-hud{position:fixed;top:18px;right:24px;z-index:20;text-align:right;display:none;pointer-events:none}
+  #police-hud.active{display:block}
+  #wanted-stars span{font-size:34px;color:#3a3a3a;text-shadow:0 0 4px #000;margin-left:2px}
+  #wanted-stars span.on{color:#ffd21f;text-shadow:0 0 8px #ff9d00,0 0 2px #000;animation:starflash .5s steps(2) infinite}
+  #police-hud.cooldown #wanted-stars span.on{animation-duration:1.2s}
+  @keyframes starflash{50%{opacity:.25}}
+  #wanted-msg{font:bold 14px Arial;letter-spacing:1px;text-shadow:0 0 4px #000;min-height:18px}
+  #arrest-meter{position:fixed;left:50%;bottom:90px;width:240px;height:10px;margin-left:-120px;background:#000a;border:1px solid #fff6;display:none;z-index:20}
+  #arrest-meter.show{display:block}
+  #arrest-fill{height:100%;width:0;background:linear-gradient(90deg,#1a50ff,#ff1020)}
+  #busted-screen{position:fixed;inset:0;z-index:50;display:none;align-items:center;justify-content:center;flex-direction:column;
+    background:rgba(5,10,40,.78);font-family:Impact,'Arial Black',sans-serif;pointer-events:none}
+  #busted-screen.show{display:flex;animation:bustflash .6s infinite alternate}
+  #busted-screen div{font-size:min(18vw,140px);letter-spacing:8px;text-shadow:0 0 20px #1a50ff,0 0 40px #ff1020}
+  #busted-screen small{font:16px Arial;opacity:.8;margin-top:8px}
+  @keyframes bustflash{from{background:rgba(5,10,60,.8)}to{background:rgba(60,5,10,.8)}}
 </style>
+
+<!-- Three.js from CDN (no build step needed) -->
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
 </head>
-
 <body>
-
 <div id="game"></div>
 
-<!-- LOADING SCREEN -->
+<!-- HUD -->
+<div id="camtag"></div>
+<div id="keys">WASD move &nbsp; Shift sprint &nbsp; Click punch<br>F car in/out &nbsp; V camera &nbsp; M map</div>
+<div id="crosshair"></div>
+<div id="speed"></div>
+<div id="prompt"></div>
+<div id="zone"></div>
 
-<div id="loading">
-    <h1>GRAND LARCENY AUTO</h1>
-    <h2>BLACKTOP CITY</h2>
+<!-- Police HUD -->
+<div id="police-hud">
+  <div id="wanted-stars"><span>&#9733;</span><span>&#9733;</span><span>&#9733;</span><span>&#9733;</span><span>&#9733;</span></div>
+  <div id="wanted-msg"></div>
+</div>
+<div id="arrest-meter"><div id="arrest-fill"></div></div>
+<div id="busted-screen"><div>BUSTED</div><small>Respawning at the station...</small></div>
 
-    <div id="loading-status">Loading Blacktop City...</div>
-
-    <div id="loading-track">
-        <div id="loading-progress"></div>
-    </div>
-
-    <div id="studio">BLACKTOP INTERACTIVE</div>
+<!-- Full-screen city map -->
+<div id="map-overlay" class="hidden">
+  <canvas id="map-canvas"></canvas>
+  <div id="map-title">BLACKTOP CITY</div>
+  <button id="map-close">CLOSE (M)</button>
+  <div id="map-hint">Yellow arrow = you &nbsp;|&nbsp; blue square P = police station &nbsp;|&nbsp; flashing dots = pursuing cops</div>
 </div>
 
-<!-- GAME UI -->
-
-<div id="ui">
-    <div id="brand">GRAND LARCENY AUTO</div>
-    <div id="location">BLACKTOP CITY</div>
-
-    <div id="start-message">CLICK TO PLAY</div>
-    <div id="crosshair">+</div>
-
-    <div id="controls">
-        WASD: MOVE &nbsp; | &nbsp;
-        SHIFT: SPRINT &nbsp; | &nbsp;
-        SPACE: JUMP &nbsp; | &nbsp;
-        MOUSE: CAMERA &nbsp; | &nbsp;
-        ESC: UNLOCK
+<!-- Main menu / pause / settings / news -->
+<div id="menu">
+  <div class="panel">
+    <div class="view" id="v-main">
+      <h1>GRAND LARCENY AUTO 1</h1>
+      <div class="sub">BLACKTOP CITY</div>
+      <button id="btn-play">PLAY</button>
+      <button id="btn-map">CITY MAP</button>
+      <button id="btn-news">NEWS</button>
+      <button id="btn-settings">SETTINGS</button>
+      <div class="controls">
+        <b>W A S D</b> move/drive &nbsp; <b>Shift</b> sprint &nbsp; <b>Space</b> handbrake<br>
+        <b>Mouse</b> look &nbsp; <b>Click</b> punch &nbsp; <b>F</b> enter/exit car &nbsp; <b>V</b> first/third person &nbsp; <b>M</b> map &nbsp; <b>Esc</b> pause<br>
+        Crimes (hitting pedestrians, stealing cars, ramming police) raise your Wanted level. Lose the cops for 15 seconds to escape.
+      </div>
     </div>
-
-    <div id="footer">BLACKTOP INTERACTIVE</div>
+    <div class="view hidden" id="v-settings">
+      <h2>SETTINGS</h2>
+      <label>GRAPHICS</label>
+      <select id="set-gfx"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select>
+      <label>MOUSE SENSITIVITY: <span id="lbl-sens"></span></label>
+      <input type="range" id="set-sens" min="1" max="10" step="1">
+      <label>VOLUME: <span id="lbl-vol"></span></label>
+      <input type="range" id="set-vol" min="0" max="100" step="1">
+      <button data-back style="margin-top:24px">BACK</button>
+    </div>
+    <div class="view hidden" id="v-news">
+      <h2>BLACKTOP DAILY NEWS</h2>
+      <div id="news-list"></div>
+      <button data-back style="margin-top:18px">BACK</button>
+    </div>
+  </div>
 </div>
 
-<script type="module">
-
-import * as THREE from
-'https://cdn.jsdelivr.net/npm/three@0.182.0/build/three.module.js';
-
-/* =====================================
-   GRAND LARCENY AUTO
-   BLACKTOP INTERACTIVE
-   MILESTONE 1
-===================================== */
-
-/* GAME SETUP */
-
-const scene = new THREE.Scene();
-
-scene.background = new THREE.Color(0x80b9dc);
-scene.fog = new THREE.Fog(0x80b9dc, 100, 450);
-
-const camera = new THREE.PerspectiveCamera(
-    70,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    1000
-);
-
-const renderer = new THREE.WebGLRenderer({
-    antialias: true
-});
-
-renderer.setPixelRatio(
-    Math.min(window.devicePixelRatio, 2)
-);
-
-renderer.setSize(
-    window.innerWidth,
-    window.innerHeight
-);
-
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-
-document.getElementById('game').appendChild(
-    renderer.domElement
-);
-
-/* LIGHTING */
-
-const skyLight = new THREE.HemisphereLight(
-    0xffffff,
-    0x526b53,
-    2
-);
-
-scene.add(skyLight);
-
-const sun = new THREE.DirectionalLight(
-    0xfff0d1,
-    3
-);
-
-sun.position.set(100, 150, 80);
-sun.castShadow = true;
-
-sun.shadow.mapSize.set(2048, 2048);
-
-sun.shadow.camera.left = -180;
-sun.shadow.camera.right = 180;
-sun.shadow.camera.top = 180;
-sun.shadow.camera.bottom = -180;
-
-scene.add(sun);
-
-/* MATERIALS */
-
-const grassMaterial = new THREE.MeshStandardMaterial({
-    color: 0x39824a,
-    roughness: 1
-});
-
-const sandMaterial = new THREE.MeshStandardMaterial({
-    color: 0xd9c18a,
-    roughness: 1
-});
-
-const waterMaterial = new THREE.MeshStandardMaterial({
-    color: 0x167fa7,
-    roughness: 0.35,
-    metalness: 0.1
-});
-
-const roadMaterial = new THREE.MeshStandardMaterial({
-    color: 0x33363a,
-    roughness: 1
-});
-
-/* OCEAN */
-
-const ocean = new THREE.Mesh(
-    new THREE.PlaneGeometry(1000, 1000),
-    waterMaterial
-);
-
-ocean.rotation.x = -Math.PI / 2;
-ocean.position.y = -0.7;
-
-scene.add(ocean);
-
-/* =====================================
-   BLACKTOP CITY ISLANDS
-===================================== */
-
-function createIsland(x, z, radius, name) {
-
-    // Sandy beach base
-    const sand = new THREE.Mesh(
-        new THREE.CylinderGeometry(
-            radius,
-            radius * 1.08,
-            1,
-            64
-        ),
-        sandMaterial
-    );
-
-    sand.position.set(x, -0.5, z);
-    sand.receiveShadow = true;
-    sand.castShadow = true;
-
-    scene.add(sand);
-
-    // Green land interior
-    const grass = new THREE.Mesh(
-        new THREE.CylinderGeometry(
-            radius * 0.86,
-            radius * 0.9,
-            0.35,
-            64
-        ),
-        grassMaterial
-    );
-
-    grass.position.set(x, 0.17, z);
-    grass.receiveShadow = true;
-
-    scene.add(grass);
-
-    return {
-        x,
-        z,
-        radius,
-        name
-    };
-}
-
-const islands = [];
-
-islands.push(
-    createIsland(0, 0, 65, 'Downtown Blacktop')
-);
-
-islands.push(
-    createIsland(115, 0, 43, 'East Island')
-);
-
-islands.push(
-    createIsland(-110, 0, 38, 'West Island')
-);
-
-islands.push(
-    createIsland(0, -115, 32, 'Palm Beach Island')
-);
-
-/* BRIDGES */
-
-function createBridge(x, z, length, rotation = 0) {
-
-    const bridge = new THREE.Mesh(
-        new THREE.BoxGeometry(length, 0.5, 13),
-        roadMaterial
-    );
-
-    bridge.position.set(x, 0.15, z);
-    bridge.rotation.y = rotation;
-    bridge.receiveShadow = true;
-
-    scene.add(bridge);
-}
-
-createBridge(70, 0, 32);
-createBridge(-70, 0, 32);
-createBridge(0, -72, 32, Math.PI / 2);
-
-/* =====================================
-   ROADS
-===================================== */
-
-function createRoad(x, z, width, length, rotation = 0) {
-
-    const road = new THREE.Mesh(
-        new THREE.BoxGeometry(width, 0.12, length),
-        roadMaterial
-    );
-
-    road.position.set(x, 0.39, z);
-    road.rotation.y = rotation;
-    road.receiveShadow = true;
-
-    scene.add(road);
-}
-
-// Downtown roads
-createRoad(0, -15, 105, 10);
-createRoad(0, 15, 105, 10);
-createRoad(-20, 0, 10, 75);
-createRoad(20, 0, 10, 75);
-
-// Side streets
-createRoad(-35, -30, 10, 45);
-createRoad(35, 30, 10, 45);
-
-/* =====================================
-   BUILDINGS
-===================================== */
-
-const buildings = [];
-
-function createBuilding(
-    x, z, width, height, depth, color
-) {
-
-    const building = new THREE.Mesh(
-        new THREE.BoxGeometry(
-            width,
-            height,
-            depth
-        ),
-        new THREE.MeshStandardMaterial({
-            color,
-            roughness: 0.85
-        })
-    );
-
-    building.position.set(
-        x,
-        0.35 + height / 2,
-        z
-    );
-
-    building.castShadow = true;
-    building.receiveShadow = true;
-
-    scene.add(building);
-
-    buildings.push(building);
-}
-
-// Downtown skyscrapers
-createBuilding(-30, -35, 12, 30, 12, 0x77818c);
-createBuilding(-10, -38, 14, 42, 14, 0x596b7b);
-createBuilding(12, -35, 12, 26, 12, 0xa4a4a4);
-createBuilding(32, -30, 14, 34, 14, 0x747b87);
-
-createBuilding(-32, 35, 14, 22, 14, 0xc0a98a);
-createBuilding(-10, 38, 12, 28, 12, 0x888888);
-createBuilding(15, 37, 14, 35, 14, 0x667d91);
-createBuilding(36, 32, 12, 20, 12, 0xb0a08c);
-
-// East island buildings
-createBuilding(115, -5, 13, 18, 13, 0xd0a878);
-createBuilding(130, 10, 12, 22, 12, 0xb8b6a5);
-createBuilding(95, 13, 15, 15, 15, 0x9d9d9d);
-
-// West island buildings
-createBuilding(-112, -8, 12, 15, 12, 0xc6a27e);
-createBuilding(-125, 8, 12, 20, 12, 0x8999a8);
-
-// Palm Beach Island
-createBuilding(0, -118, 12, 12, 12, 0xe1c59c);
-
-/* =====================================
-   PALM TREES
-===================================== */
-
-function createPalm(x, z) {
-
-    const trunk = new THREE.Mesh(
-        new THREE.CylinderGeometry(
-            0.25, 0.4, 5, 8
-        ),
-        new THREE.MeshStandardMaterial({
-            color: 0x80512e
-        })
-    );
-
-    trunk.position.set(x, 2.7, z);
-    trunk.rotation.z = 0.08;
-    trunk.castShadow = true;
-
-    scene.add(trunk);
-
-    const leavesMaterial =
-        new THREE.MeshStandardMaterial({
-            color: 0x176c35,
-            roughness: 0.9
-        });
-
-    for (let i = 0; i < 6; i++) {
-
-        const angle = (Math.PI * 2 * i) / 6;
-
-        const leaf = new THREE.Mesh(
-            new THREE.ConeGeometry(0.55, 4, 5),
-            leavesMaterial
-        );
-
-        leaf.position.set(
-            x + Math.sin(angle) * 1.5,
-            5,
-            z + Math.cos(angle) * 1.5
-        );
-
-        leaf.rotation.z = Math.PI / 2;
-        leaf.rotation.y = angle;
-
-        scene.add(leaf);
-    }
-}
-
-// Central island palms
-[
-    [-48, -48],
-    [48, -48],
-    [-48, 48],
-    [48, 48],
-    [-55, 0],
-    [55, 0],
-    [0, 52]
-].forEach(p => createPalm(p[0], p[1]));
-
-// Beach island palms
-[
-    [-15, -125],
-    [15, -125],
-    [-10, -100],
-    [12, -100],
-    [0, -135]
-].forEach(p => createPalm(p[0], p[1]));
-
-// East and West island palms
-[
-    [115, 25],
-    [135, -20],
-    [-105, 25],
-    [-125, -20]
-].forEach(p => createPalm(p[0], p[1]));
-
-/* =====================================
-   PLAYER
-===================================== */
-
-const player = new THREE.Group();
-
-const playerBody = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.45, 1.1, 4, 12),
-    new THREE.MeshStandardMaterial({
-        color: 0x2266cc,
-        roughness: 0.7
-    })
-);
-
-playerBody.position.y = 0.9;
-playerBody.castShadow = true;
-
-player.add(playerBody);
-
-scene.add(player);
-
-player.position.set(0, 0.35, 8);
-
-let velocityY = 0;
-
-const walkSpeed = 8;
-const sprintSpeed = 13;
-const jumpForce = 8;
-const gravity = -22;
-const rotationSpeed = 12;
-
-/* INPUT */
-
-const keys = {};
-
-window.addEventListener('keydown', (event) => {
-
-    keys[event.code] = true;
-
-    if (event.code === 'Space') {
-        event.preventDefault();
-    }
-
-});
-
-window.addEventListener('keyup', (event) => {
-    keys[event.code] = false;
-});
-
-/* =====================================
-   CAMERA
-===================================== */
-
-let yaw = 0;
-let pitch = 0.22;
-
-const cameraDistance = 7;
-const cameraHeight = 1.5;
-
-const raycaster = new THREE.Raycaster();
-
-function updateCamera(delta) {
-
-    const pivot = new THREE.Vector3(
-        player.position.x,
-        player.position.y + cameraHeight,
-        player.position.z
-    );
-
-    const horizontal =
-        Math.cos(pitch) * cameraDistance;
-
-    const direction = new THREE.Vector3(
-        Math.sin(yaw) * horizontal,
-        Math.sin(pitch) * cameraDistance,
-        Math.cos(yaw) * horizontal
-    ).normalize();
-
-    let safeDistance = cameraDistance;
-
-    // Camera collision against buildings
-    raycaster.set(pivot, direction);
-    raycaster.far = cameraDistance;
-
-    const hits = raycaster.intersectObjects(
-        buildings,
-        false
-    );
-
-    if (hits.length > 0) {
-        safeDistance = Math.max(
-            0.5,
-            hits[0].distance - 0.3
-        );
-    }
-
-    const desiredPosition = pivot.clone()
-        .addScaledVector(direction, safeDistance);
-
-    const smoothing = 1 - Math.exp(-12 * delta);
-
-    camera.position.lerp(
-        desiredPosition,
-        smoothing
-    );
-
-    camera.lookAt(pivot);
-}
-
-/* MOUSE CONTROL */
-
-renderer.domElement.addEventListener('click', () => {
-
-    if (document.pointerLockElement !==
-        renderer.domElement) {
-
-        renderer.domElement.requestPointerLock();
-    }
-
-});
-
-document.addEventListener('mousemove', (event) => {
-
-    if (document.pointerLockElement !==
-        renderer.domElement) return;
-
-    yaw -= event.movementX * 0.003;
-    pitch -= event.movementY * 0.003;
-
-    pitch = THREE.MathUtils.clamp(
-        pitch,
-        -0.45,
-        1.15
-    );
-
-});
-
-document.addEventListener(
-    'pointerlockchange',
-    () => {
-
-        const locked =
-            document.pointerLockElement ===
-            renderer.domElement;
-
-        document.getElementById(
-            'start-message'
-        ).style.display = locked ? 'none' : 'block';
-
-        document.getElementById(
-            'crosshair'
-        ).style.display = locked ? 'block' : 'none';
-
-    }
-);
-
-/* =====================================
-   PLAYER MOVEMENT
-===================================== */
-
-function updatePlayer(delta) {
-
-    const forwardInput =
-        (keys.KeyW ? 1 : 0) -
-        (keys.KeyS ? 1 : 0);
-
-    const rightInput =
-        (keys.KeyD ? 1 : 0) -
-        (keys.KeyA ? 1 : 0);
-
-    const input = new THREE.Vector2(
-        rightInput,
-        forwardInput
-    );
-
-    if (input.lengthSq() > 1) {
-        input.normalize();
-    }
-
-    // Camera-relative movement
-    const forward = new THREE.Vector3(
-        Math.sin(yaw),
-        0,
-        -Math.cos(yaw)
-    );
-
-    const right = new THREE.Vector3(
-        Math.cos(yaw),
-        0,
-        Math.sin(yaw)
-    );
-
-    const direction = new THREE.Vector3()
-        .addScaledVector(forward, input.y)
-        .addScaledVector(right, input.x);
-
-    if (direction.lengthSq() > 0.001) {
-
-        direction.normalize();
-
-        const sprinting =
-            keys.ShiftLeft || keys.ShiftRight;
-
-        const speed = sprinting
-            ? sprintSpeed
-            : walkSpeed;
-
-        player.position.addScaledVector(
-            direction,
-            speed * delta
-        );
-
-        // Smooth player rotation
-        const targetRotation = Math.atan2(
-            direction.x,
-            direction.z
-        );
-
-        let difference = targetRotation -
-                         player.rotation.y;
-
-        difference = Math.atan2(
-            Math.sin(difference),
-            Math.cos(difference)
-        );
-
-        player.rotation.y +=
-            difference *
-            Math.min(1, rotationSpeed * delta);
-    }
-
-    // Jumping
-    if (player.position.y <= 0.351) {
-
-        player.position.y = 0.35;
-        velocityY = 0;
-
-        if (keys.Space) {
-            velocityY = jumpForce;
-        }
-    }
-
-    // Gravity
-    velocityY += gravity * delta;
-    player.position.y += velocityY * delta;
-
-    // Ground
-    if (player.position.y < 0.35) {
-        player.position.y = 0.35;
-        velocityY = 0;
-    }
-
-}
-
-/* =====================================
-   LOADING SCREEN
-===================================== */
-
-function finishLoading() {
-
-    const loading = document.getElementById('loading');
-    const progress = document.getElementById('loading-progress');
-    const status = document.getElementById('loading-status');
-
-    progress.style.width = '100%';
-    status.textContent = 'Entering Blacktop City...';
-
-    setTimeout(() => {
-
-        loading.style.opacity = '0';
-
-        setTimeout(() => {
-            loading.style.display = 'none';
-        }, 850);
-
-    }, 500);
-}
-
-/* =====================================
-   MAIN GAME LOOP
-===================================== */
-
-let previousTime = 0;
-
-function animate(time) {
-
-    requestAnimationFrame(animate);
-
-    const delta = Math.min(
-        (time - previousTime) / 1000 || 0,
-        0.05
-    );
-
-    previousTime = time;
-
-    updatePlayer(delta);
-    updateCamera(delta);
-
-    renderer.render(scene, camera);
-}
-
-/* RESIZE */
-
-window.addEventListener('resize', () => {
-
-    camera.aspect =
-        window.innerWidth / window.innerHeight;
-
-    camera.updateProjectionMatrix();
-
-    renderer.setSize(
-        window.innerWidth,
-        window.innerHeight
-    );
-
-});
-
-/* START GAME */
-
-camera.position.set(0, 3, 15);
-
-animate(0);
-
-document.getElementById('loading-progress').style.width =
-    '100%';
-
-finishLoading();
-
-console.log(
-    'GRAND LARCENY AUTO - BLACKTOP CITY LOADED'
-);
-
-console.log(
-    'DEVELOPED BY BLACKTOP INTERACTIVE'
-);
-
-</script>
-
+<script type="module" src="./main.js"></script>
 </body>
 </html>
