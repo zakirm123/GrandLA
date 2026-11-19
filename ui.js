@@ -1,5 +1,6 @@
 // ui.js - main menu, settings (graphics / sensitivity / volume), full-screen city map, news screen.
 import { ROAD_W } from './world.js';
+import { isTouchDevice } from './mobile.js';
 
 const NEWS = [
   ['Council approves third bridge to South Cape', 'Commuters rejoice as the new span links Downtown with the Cape. Police warn that bridge chases "are a bad idea for everyone".'],
@@ -13,7 +14,9 @@ const NEWS = [
 export function createUI(world, hooks) {
   const $ = (id) => document.getElementById(id);
   const settings = { gfx: 'high', sens: 5, vol: 70 };
-  try { Object.assign(settings, JSON.parse(localStorage.getItem('gla1-settings') || '{}')); } catch (e) { /* storage blocked */ }
+  let hadSaved = false;
+  try { const raw = localStorage.getItem('gla1-settings'); if (raw) { hadSaved = true; Object.assign(settings, JSON.parse(raw)); } } catch (e) { /* storage blocked */ }
+  if (!hadSaved && isTouchDevice) settings.gfx = 'low';   // phones start on Low for smooth play
   const save = () => { try { localStorage.setItem('gla1-settings', JSON.stringify(settings)); } catch (e) { /* ignore */ } };
   const stats = { crimes: 0, busts: 0, maxStars: 0, escapes: 0 };
   let menuOpen = true, mapOpen = false, started = false;
