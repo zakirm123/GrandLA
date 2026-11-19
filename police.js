@@ -112,13 +112,16 @@ export const Police = (() => {
   function ensureLightBar(car) {
     if (car._bar) { car._bar.visible = true; return; }
     const m = car.mesh;
-    const rot = m.rotation.y; m.rotation.y = 0; m.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(m);
-    m.rotation.y = rot; m.updateMatrixWorld(true);
-    const size = box.getSize(new THREE.Vector3());
-    const sc = m.scale.y || 1;
-    const roof = (box.max.y - m.position.y) / sc;
-    const w = Math.min(size.x, size.z) / (m.scale.x || 1);
+    let roof = m.userData.roofY, w = m.userData.barWidth;       // models.js supplies exact roof height / bar width
+    if (roof === undefined || w === undefined) {
+      const rot = m.rotation.y; m.rotation.y = 0; m.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(m);
+      m.rotation.y = rot; m.updateMatrixWorld(true);
+      const size = box.getSize(new THREE.Vector3());
+      const sc = m.scale.y || 1;
+      roof = (box.max.y - m.position.y) / sc;
+      w = Math.min(size.x, size.z) / (m.scale.x || 1);
+    }
     const bar = new THREE.Group();
     const mk = (mat, x) => {
       const l = new THREE.Mesh(unitBox, mat);
@@ -391,8 +394,8 @@ export const Police = (() => {
     const phase = Math.floor(time * 8) % 2;
     if (phase === flashPhase) return;
     flashPhase = phase;
-    redMat.color.setHex(phase ? 0xff1020 : 0x330408);
-    blueMat.color.setHex(phase ? 0x061440 : 0x2a60ff);
+    redMat.color.setHex(phase ? 0xff1020 : 0x330408).multiplyScalar(phase ? 2.6 : 1);   // >1 so the bloom pass makes them glow
+    blueMat.color.setHex(phase ? 0x061440 : 0x2a60ff).multiplyScalar(phase ? 1 : 2.6);
   }
 
   // -------------------------------------------------------------------- audio
