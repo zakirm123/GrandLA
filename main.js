@@ -1,7 +1,9 @@
 // main.js - Grand Larceny Auto 1: game loop, player, camera, driving, crimes, police wiring.
 import * as THREE from 'three';
 import { buildWorld } from './world.js';
-import { Traffic, Peds, makeHuman, makeVehicle, animateHuman } from './actors.js';
+import { Traffic, Peds, makeHuman, makeVehicle, animateHuman, spinWheels } from './actors.js';
+import { createPost } from './gfx.js';
+import { touch, isTouchDevice, initMobile } from './mobile.js';
 import { createUI } from './ui.js';
 import { Police } from './police.js';
 
@@ -14,23 +16,27 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
 $('game').appendChild(renderer.domElement);
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.3, 2600);
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.3, 4000);
 camera.rotation.order = 'YXZ';
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+  if (post) post.setSize(innerWidth, innerHeight);
 });
+let post = null;
 
 // ---------------------------------------------------------------- world/actors
-const world = buildWorld(scene);
+const world = buildWorld(scene, renderer);
 const traffic = new Traffic(scene, world);
 const peds = new Peds(scene, world);
 
 const player = {
-  x: 10, z: 10, h: 0, mode: 'foot', car: null, phase: 0, moving: false, punchT: 0,
-  human: makeHuman({ skin: 0xe0ac84, shirt: 0xd9232d, pants: 0x20232a, hair: 0x1b1310 }),
+  x: 10, z: 10, y: 0.17, h: 0, mode: 'foot', car: null, phase: 0, moving: false, punchT: 0,
+  human: makeHuman({ female: false, skin: 0xe0ac84, shirt: 0x1d1f24, pants: 0x2a3a55, hair: 0x1b1310, jacket: 0x6b1f1f, longSleeve: true, glasses: false }),
 };
 scene.add(player.human.group);
 const look = { yaw: 0, pitch: 0, yawOff: 0, pitchOff: 0, idle: 0, first: false };
@@ -38,16 +44,25 @@ const look = { yaw: 0, pitch: 0, yawOff: 0, pitchOff: 0, idle: 0, first: false }
 // -------------------------------------------------------------------- UI
 let paused = true, lastPaused = null;
 const ui = createUI(world, {
-  onPlay: () => renderer.domElement.requestPointerLock && renderer.domElement.requestPointerLock(),
+  onPlay: () => { if (isTouchDevice) mobile.fullscreen && mobile.fullscreen(); else renderer.domElement.requestPointerLock && renderer.domElement.requestPointerLock(); },
   onSettingsChange: applyGraphics,
-  onMapToggle: (open) => { if (!open && ui.hasStarted() && !ui.isMenuOpen()) renderer.domElement.requestPointerLock(); },
+  onMapToggle: (open) => { if (!isTouchDevice && !open && ui.hasStarted() && !ui.isMenuOpen()) renderer.domElement.requestPointerLock(); },
 });
 function applyGraphics() {
   const g = ui.settings.gfx, dpr = devicePixelRatio || 1;
   renderer.setPixelRatio(g === 'low' ? 1 : g === 'medium' ? Math.min(dpr, 1.5) : Math.min(dpr, 2));
   renderer.setSize(innerWidth, innerHeight);
   world.setGraphics(g);
+  if (g === 'high' && !isTouchDevice) { if (!post && !applyGraphics.loading) { applyGraphics.loading = true; createPost(renderer, scene, camera).then((p) => { post = p; applyGraphics.loading = false; if (ui.settings.gfx !== 'high') post = null; }); } else if (post) post.setSize(innerWidth, innerHeight); }
+  else post = null;
 }
+// touch controls
+const mobile = initMobile({
+  onEnter: () => { if (ui.hasStarted() && !ui.isMenuOpen() && !ui.isMapOpen()) toggleCar(); },
+  onCamera: () => { look.first = !look.first; },
+  onMap: () => { if (ui.hasStarted() && !ui.isMenuOpen()) ui.toggleMap(); },
+  onPause: () => { if (ui.hasStarted()) { ui.closeMap(); ui.openMenu('main'); } },
+});
 applyGraphics();
 
 // ------------------------------------------------------------------- police
@@ -59,7 +74,7 @@ Police.init({
   isBlocked: (x, z, r) => world.isBlocked(x, z, r),
   roadNodes: world.roadPoints,
   getPlayerPosition: () => ({ x: player.x, y: 0, z: player.z }),
-  getGroundY: () => 0,
+  getGroundY: () => 0.05,
   getVolume: () => ui.settings.vol / 100,
   createCruiser: () => makeVehicle('police'),
   config: { crashRadius: 0 },                 // crashes are reported from main.js (accurate car shapes)
@@ -97,21 +112,24 @@ addEventListener('keyup', (e) => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 addEventListener('mousedown', (e) => { if (e.button === 0) mouseDown = true; initEngine(); });
 addEventListener('mouseup', (e) => { if (e.button === 0) mouseDown = false; });
+function applyLook(dx, dy, scale = 1) {
+  const k = (0.0003 + ui.settings.sens * 0.00045) * scale;
+  if (player.mode === 'car') {
+    look.yawOff = clamp(look.yawOff - dx * k, -Math.PI, Math.PI);
+    look.pitchOff = clamp(look.pitchOff - dy * k, -0.8, 0.8); look.idle = 0;
+  } else {
+    look.yaw -= dx * k; look.pitch = clamp(look.pitch - dy * k, -1.2, 1.2);
+  }
+}
 addEventListener('mousemove', (e) => {
   if (document.pointerLockElement !== renderer.domElement || paused) return;
-  const k = 0.0003 + ui.settings.sens * 0.00045;
-  if (player.mode === 'car') {
-    look.yawOff = clamp(look.yawOff - e.movementX * k, -Math.PI, Math.PI);
-    look.pitchOff = clamp(look.pitchOff - e.movementY * k, -0.8, 0.8); look.idle = 0;
-  } else {
-    look.yaw -= e.movementX * k; look.pitch = clamp(look.pitch - e.movementY * k, -1.2, 1.2);
-  }
+  applyLook(e.movementX, e.movementY);
 });
 document.addEventListener('pointerlockchange', () => {
-  if (document.pointerLockElement !== renderer.domElement && ui.hasStarted() && !ui.isMapOpen()) ui.openMenu('main');
+  if (!isTouchDevice && document.pointerLockElement !== renderer.domElement && ui.hasStarted() && !ui.isMapOpen()) ui.openMenu('main');
 });
 renderer.domElement.addEventListener('click', () => {
-  if (ui.hasStarted() && !ui.isMenuOpen() && !ui.isMapOpen() && document.pointerLockElement !== renderer.domElement)
+  if (!isTouchDevice && ui.hasStarted() && !ui.isMenuOpen() && !ui.isMapOpen() && document.pointerLockElement !== renderer.domElement)
     renderer.domElement.requestPointerLock();
 });
 
@@ -172,15 +190,15 @@ function toggleCar() {
 
 // ----------------------------------------------------------------- player
 function updateFoot(dt) {
-  const f = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
-  const r = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
+  const f = clamp((keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0) + touch.my, -1, 1);
+  const r = clamp((keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0) + touch.mx, -1, 1);
   const sy = Math.sin(look.yaw), cy = Math.cos(look.yaw);
   let mx = sy * f - cy * r, mz = cy * f + sy * r;
-  const len = Math.hypot(mx, mz);
+  const len = Math.hypot(mx, mz), mag = Math.min(1, len);
   player.moving = len > 0.01;
   if (player.moving) {
     mx /= len; mz /= len;
-    const speed = keys.ShiftLeft || keys.ShiftRight ? 9 : 5;
+    const speed = (keys.ShiftLeft || keys.ShiftRight || touch.sprint ? 9 : 5) * Math.max(0.35, mag);
     const nx = player.x + mx * speed * dt, nz = player.z + mz * speed * dt;
     if (!world.isBlocked(nx, nz, 0.4)) { player.x = nx; player.z = nz; }
     else if (!world.isBlocked(nx, player.z, 0.4)) player.x = nx;
@@ -191,7 +209,7 @@ function updateFoot(dt) {
   }
   // punch
   player.punchT = Math.max(0, player.punchT - dt);
-  if (mouseDown && player.punchT <= 0 && document.pointerLockElement === renderer.domElement) {
+  if ((mouseDown || touch.attack) && player.punchT <= 0 && (isTouchDevice || document.pointerLockElement === renderer.domElement)) {
     player.punchT = 0.45;
     const fx = Math.sin(look.first ? look.yaw : player.h), fz = Math.cos(look.first ? look.yaw : player.h);
     for (const p of peds.list) {
@@ -203,24 +221,26 @@ function updateFoot(dt) {
   const hm = player.human;
   animateHuman(hm, player.phase, player.moving ? 0.75 : 0);
   if (player.punchT > 0.15) { hm.armR.rotation.x = -1.5; }
-  hm.group.position.set(player.x, 0, player.z); hm.group.rotation.y = player.h;
+  player.y += (world.groundY(player.x, player.z) - player.y) * Math.min(1, dt * 18);
+  hm.group.position.set(player.x, player.y, player.z); hm.group.rotation.y = player.h;
   hm.group.visible = !look.first;
 }
 
 function updateCar(dt) {
   const car = player.car, m = car.mesh, p = m.position;
   const maxF = car.type === 'truck' ? 20 : car.type === 'police' ? 32 : 28;
-  const up = keys.KeyW || keys.ArrowUp, down = keys.KeyS || keys.ArrowDown;
-  const steer = (keys.KeyA || keys.ArrowLeft ? 1 : 0) - (keys.KeyD || keys.ArrowRight ? 1 : 0);
+  const up = keys.KeyW || keys.ArrowUp || touch.my > 0.2, down = keys.KeyS || keys.ArrowDown || touch.my < -0.2;
+  const steer = clamp((keys.KeyA || keys.ArrowLeft ? 1 : 0) - (keys.KeyD || keys.ArrowRight ? 1 : 0) - touch.mx, -1, 1);
+  const handbrake = keys.Space || touch.brake;
   let v = car.speed;
   if (up) v += (v < 0 ? 24 : 11 * (1 - v / maxF)) * dt;
   else if (down) v -= (v > 0.5 ? 24 : 9) * dt;
   else v -= Math.sign(v) * Math.min(Math.abs(v), 3.5 * dt);
-  if (keys.Space) v -= Math.sign(v) * Math.min(Math.abs(v), 28 * dt);
+  if (handbrake) v -= Math.sign(v) * Math.min(Math.abs(v), 28 * dt);
   v = clamp(v, -9, maxF);
   let h = m.rotation.y;
   const rate = 1.9 / (1 + Math.abs(v) / 22) * clamp(Math.abs(v) / 5, 0, 1) * (v >= 0 ? 1 : -1);
-  h += steer * rate * dt * (keys.Space ? 1.5 : 1);
+  h += steer * rate * dt * (handbrake ? 1.5 : 1);
   const ox = p.x, oz = p.z;
   p.x += Math.sin(h) * v * dt; p.z += Math.cos(h) * v * dt;
   m.rotation.y = h;
@@ -262,7 +282,7 @@ function updateCar(dt) {
       if (ahead > -1.5 && ahead < 2.8 && side < 1.4 && peds.hit(q, fx * v * 0.9 + (Math.random() - 0.5) * 3, fz * v * 0.9 + (Math.random() - 0.5) * 3)) crime('pedestrian');
     }
   }
-  car.speed = v;
+  car.speed = v; spinWheels(car, dt);
   player.x = p.x; player.z = p.z; player.h = h;
   player.human.group.visible = false;
 }
@@ -276,7 +296,7 @@ function updateCamera(dt) {
     if (look.idle > 1.2) { const k = Math.max(0, 1 - 3 * dt); look.yawOff *= k; look.pitchOff *= k; }
     yaw = h + look.yawOff; pitch = look.pitchOff + (look.first ? 0 : -0.22); targetY = 1.8;
     if (look.first) pos.set(m.position.x + Math.cos(h) * 0.4 + Math.sin(h) * 0.3, 1.3, m.position.z - Math.sin(h) * 0.4 + Math.cos(h) * 0.3);
-  } else { yaw = look.yaw; pitch = look.pitch; targetY = 1.65; if (look.first) pos.set(player.x, 1.65, player.z); }
+  } else { yaw = look.yaw; pitch = look.pitch; targetY = player.y + 1.48; if (look.first) pos.set(player.x, player.y + 1.48, player.z); }
   const dir = new THREE.Vector3(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
   if (look.first) { camera.position.copy(pos); camera.lookAt(pos.clone().add(dir)); }
   else {
@@ -284,7 +304,7 @@ function updateCamera(dt) {
     let dist = player.mode === 'car' ? (player.car.type === 'truck' ? 11 : 8.5) : 4.2;
     for (let d = 0.6; d <= dist; d += 0.5) {          // pull the camera in front of walls
       const x = tgt.x - dir.x * d, y = tgt.y - dir.y * d, z = tgt.z - dir.z * d;
-      if (y < 0.3 || world.buildings.some(b => x > b.x0 - 0.3 && x < b.x1 + 0.3 && z > b.z0 - 0.3 && z < b.z1 + 0.3 && y < b.h)) { dist = Math.max(1.2, d - 0.6); break; }
+      if (y < player.y + 0.15 || world.buildings.some(b => x > b.x0 - 0.3 && x < b.x1 + 0.3 && z > b.z0 - 0.3 && z < b.z1 + 0.3 && y < b.h)) { dist = Math.max(1.2, d - 0.6); break; }
     }
     camera.position.set(tgt.x - dir.x * dist, Math.max(0.4, tgt.y - dir.y * dist), tgt.z - dir.z * dist);
     camera.lookAt(tgt);
@@ -311,13 +331,15 @@ function updateEngine() {
 }
 
 // --------------------------------------------------------------------- HUD
-const hud = { speed: $('speed'), prompt: $('prompt'), cross: $('crosshair'), zone: $('zone'), cam: $('camtag') };
+const hud = { clock: $('clock'), speed: $('speed'), prompt: $('prompt'), cross: $('crosshair'), zone: $('zone'), cam: $('camtag') };
 function updateHud() {
+  hud.clock.textContent = world.env.clock();
+  mobile.setMode(player.mode);
   hud.speed.textContent = player.mode === 'car' ? Math.round(Math.abs(player.car.speed) * 3.6) + ' km/h' : '';
   let prompt = '';
-  if (player.mode === 'car') prompt = 'F  exit vehicle';
+  if (player.mode === 'car') prompt = isTouchDevice ? 'Tap ENTER / EXIT to leave the car' : 'F  exit vehicle';
   else {
-    for (const c of traffic.cars) if (!c.driven && Math.hypot(c.mesh.position.x - player.x, c.mesh.position.z - player.z) < 5.5) { prompt = 'F  take ' + (c.type === 'police' ? 'police car' : c.type); break; }
+    for (const c of traffic.cars) if (!c.driven && Math.hypot(c.mesh.position.x - player.x, c.mesh.position.z - player.z) < 5.5) { prompt = (isTouchDevice ? 'Tap ENTER / EXIT to take ' : 'F  take ') + (c.type === 'police' ? 'police car' : c.type); break; }
   }
   hud.prompt.textContent = prompt;
   hud.cross.style.display = look.first && player.mode === 'foot' ? 'block' : 'none';
@@ -339,6 +361,7 @@ function frame() {
   if (paused !== lastPaused) { Police.setActive(!paused); lastPaused = paused; }
   if (!paused) {
     time += dt;
+    if (touch.lookX || touch.lookY) { applyLook(touch.lookX, touch.lookY, 1.4); touch.lookX = touch.lookY = 0; }
     if (!Police.isBusted()) { player.mode === 'car' ? updateCar(dt) : updateFoot(dt); }
     const blockers = [{ x: player.x, z: player.z }];
     for (const p of peds.list) if (p.state !== 'down' && p.kind !== 'lie') blockers.push(p);
@@ -363,7 +386,8 @@ function frame() {
   }
   updateCamera(dt);
   if (ui.isMapOpen()) ui.drawMap(player, Police.getCops(), Police.isWanted(), time);
-  renderer.render(scene, camera);
+  if (post) post.composer.render(); else renderer.render(scene, camera);
 }
+{ const l = $('loading'); if (l) l.remove(); }
 frame();
 window.GLA = { Police, player, world, traffic, peds, ui };   // handy for debugging in the console
