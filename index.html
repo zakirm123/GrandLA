@@ -2,7 +2,17 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0c0e13">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="GLA 1">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="icon" href="favicon-64.png" sizes="64x64" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
 <title>Grand Larceny Auto 1 - Blacktop City</title>
 <style>
   *{box-sizing:border-box}
@@ -63,18 +73,43 @@
   #busted-screen div{font-size:min(18vw,140px);letter-spacing:8px;text-shadow:0 0 20px #1a50ff,0 0 40px #ff1020}
   #busted-screen small{font:16px Arial;opacity:.8;margin-top:8px}
   @keyframes bustflash{from{background:rgba(5,10,60,.8)}to{background:rgba(60,5,10,.8)}}
+
+  /* ---------- Update 1.2 ---------- */
+  #clock{position:fixed;left:50%;top:14px;transform:translateX(-50%);font:bold 15px Arial;letter-spacing:3px;text-shadow:0 0 4px #000;z-index:10;opacity:.85}
+  #logo{display:block;width:150px;height:150px;margin:0 auto 6px;filter:drop-shadow(0 6px 14px #000a)}
+  #loading{position:fixed;inset:0;z-index:100;background:#0c0e13;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font:bold 14px Arial;letter-spacing:4px}
+  #loading img{width:160px;height:160px;animation:pulse 1.2s ease-in-out infinite alternate}
+  @keyframes pulse{from{transform:scale(.96)}to{transform:scale(1.04)}}
+  .only-touch{display:none}
+  body.touch .only-touch{display:block}
+  body.touch .only-desktop,body.touch #keys{display:none}
+  body.touch #speed{right:auto;left:50%;transform:translateX(-50%);bottom:auto;top:34px;font-size:26px}
+  body.touch #prompt{bottom:30%;font-size:14px;text-align:center;width:70%}
+  body.touch #zone{bottom:auto;top:66px;left:14px;font-size:11px}
+  body.touch #camtag{display:none}
+  body.touch #police-hud{top:10px;right:calc(14px + env(safe-area-inset-right))}
+  body.touch #wanted-stars span{font-size:24px}
+  body.touch #arrest-meter{bottom:50%}
+  body.touch .panel{padding:18px 20px}
+  body.touch #logo{width:96px;height:96px}
+  body.touch button{padding:11px}
 </style>
 
 <!-- Three.js from CDN (no build step needed) -->
 <script type="importmap">
-{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+} }
 </script>
 </head>
 <body>
+<div id="loading"><img src="logo.svg" alt="GLA 1"><div>LOADING BLACKTOP CITY...</div></div>
 <div id="game"></div>
 
 <!-- HUD -->
 <div id="camtag"></div>
+<div id="clock"></div>
 <div id="keys">WASD move &nbsp; Shift sprint &nbsp; Click punch<br>F car in/out &nbsp; V camera &nbsp; M map</div>
 <div id="crosshair"></div>
 <div id="speed"></div>
@@ -101,13 +136,19 @@
 <div id="menu">
   <div class="panel">
     <div class="view" id="v-main">
+      <img id="logo" src="logo.svg" alt="GLA 1 logo">
       <h1>GRAND LARCENY AUTO 1</h1>
-      <div class="sub">BLACKTOP CITY</div>
+      <div class="sub">BLACKTOP CITY &middot; UPDATE 1.2</div>
       <button id="btn-play">PLAY</button>
       <button id="btn-map">CITY MAP</button>
       <button id="btn-news">NEWS</button>
       <button id="btn-settings">SETTINGS</button>
-      <div class="controls">
+      <div class="controls only-touch">
+        <b>Left thumb</b> joystick: walk / drive &nbsp; <b>Right side</b> drag to look<br>
+        <b>ENTER / EXIT</b> car &nbsp; <b>PUNCH</b> &nbsp; <b>RUN</b> &nbsp; <b>BRAKE</b> (in car) &nbsp; <b>VIEW</b> first/third person &nbsp; <b>MAP</b> &nbsp; <b>MENU</b> pause<br>
+        Crimes raise your Wanted level. Lose the cops for 15 seconds to escape.
+      </div>
+      <div class="controls only-desktop">
         <b>W A S D</b> move/drive &nbsp; <b>Shift</b> sprint &nbsp; <b>Space</b> handbrake<br>
         <b>Mouse</b> look &nbsp; <b>Click</b> punch &nbsp; <b>F</b> enter/exit car &nbsp; <b>V</b> first/third person &nbsp; <b>M</b> map &nbsp; <b>Esc</b> pause<br>
         Crimes (hitting pedestrians, stealing cars, ramming police) raise your Wanted level. Lose the cops for 15 seconds to escape.
