@@ -5,6 +5,7 @@ import { Traffic, Peds, makeHuman, makeVehicle, animateHuman, spinWheels } from 
 import { makeWeapon } from './models.js';
 import { createInteriors } from './interior.js';
 import { createWeapons, WEAPONS } from './weapons.js';
+import { Boats } from './boats.js';
 import { createPost } from './gfx.js';
 import { touch, isTouchDevice, initMobile } from './mobile.js';
 import { createUI } from './ui.js';
@@ -41,6 +42,8 @@ let post = null;
 const world = buildWorld(scene, renderer);
 const traffic = new Traffic(scene, world);
 const peds = new Peds(scene, world);
+const boats = new Boats(scene, world);
+const RIDDEN = ['bike', 'jetski', 'boat'];
 
 const player = {
   x: 10, z: 10, y: 0.17, h: 0, mode: 'foot', car: null, phase: 0, moving: false, punchT: 0,
@@ -135,7 +138,11 @@ function syncWeaponMeshes() {
 
 function respawnPlayer() {
   if (inside) exitInterior(true);
-  if (player.car) { traffic.park(player.car); player.car = null; }
+  if (player.car) {
+    if (RIDDEN.includes(player.car.type)) { scene.add(player.human.group); player.human.pose = null; player.car.mesh.rotation.z = 0; }
+    if (player.car.water) boats.park(player.car); else traffic.park(player.car);
+    player.car = null;
+  }
   player.mode = 'foot';
   player.x = world.station.x; player.z = world.station.z; player.h = 0;
   look.yaw = 0; look.pitch = 0;
@@ -214,6 +221,14 @@ function toggleCar() {
     const car = player.car;
     if (Math.abs(car.speed) > 8) return;
     const h = car.mesh.rotation.y, p = car.mesh.position;
+    if (car.water) {                                   // step off onto the nearest shore
+      let spot = null;
+      for (let r = 3; r <= 9 && !spot; r += 1.5) for (let a = 0; a < 16; a++) { const x = p.x + Math.sin(a * 0.3927) * r, z = p.z + Math.cos(a * 0.3927) * r; if (!world.isBlocked(x, z, 0.5)) { spot = { x, z }; break; } }
+      if (!spot) { toast('Get closer to land to get off'); return; }
+      player.x = spot.x; player.z = spot.z; scene.add(player.human.group); player.human.pose = null; car.mesh.rotation.z = 0;
+      boats.park(car); player.car = null; player.mode = 'foot'; look.yaw = h; look.pitch = 0; player.y = world.groundY(player.x, player.z);
+      return;
+    }
     for (const side of [1, -1]) {
       const x = p.x + Math.cos(h) * 2.4 * side, z = p.z - Math.sin(h) * 2.4 * side;
       if (!world.isBlocked(x, z, 0.5) && !pushOut({ x, z }, 0.5)) { player.x = x; player.z = z; break; }
@@ -225,6 +240,11 @@ function toggleCar() {
     look.yaw = h; look.pitch = 0;
   } else {
     let best = null, bd = 5.5;
+    for (const c of boats.list) {
+      if (c.driven || c.ai) continue;
+      const d = Math.hypot(c.mesh.position.x - player.x, c.mesh.position.z - player.z);
+      if (d < bd) { bd = d; best = c; }
+    }
     for (const c of traffic.cars) {
       if (c.driven) continue;
       const d = Math.hypot(c.mesh.position.x - player.x, c.mesh.position.z - player.z);
@@ -232,14 +252,15 @@ function toggleCar() {
     }
     if (!best || Math.abs(best.speed) > 7) return;
     if (best.type === 'police') Police.unregisterCar(best);
-    traffic.take(best); best.speed = 0; best.parkedT = 0;
+    if (best.water) boats.take(best); else traffic.take(best);
+    best.speed = 0; best.parkedT = 0;
     player.car = best; player.mode = 'car'; look.yawOff = 0; look.pitchOff = 0;
-    if (best.type === 'bike') {
+    if (RIDDEN.includes(best.type)) {
       if (best.rider) best.rider.group.visible = false;
       const hg = player.human.group; best.mesh.add(hg); hg.position.copy(best.mesh.userData.seat); hg.position.y = best.mesh.userData.seat.y - 0.955 + 0.02; hg.rotation.set(0, 0, 0); hg.visible = true;
       player.human.pose = 'ride'; animateHuman(player.human, 0, 0, 1 / 60);
     }
-    crime('carTheft');
+    if (!best.water) crime('carTheft');
   }
 }
 
@@ -330,6 +351,26 @@ function updateFoot(dt) {
   hm.group.visible = !look.first;
 }
 
+function updateBoat(dt) {
+  const car = player.car, m = car.mesh, p = m.position, jet = car.type === 'jetski';
+  const up = keys.KeyW || keys.ArrowUp || touch.my > 0.2, down = keys.KeyS || keys.ArrowDown || touch.my < -0.2;
+  const steer = clamp((keys.KeyA || keys.ArrowLeft ? 1 : 0) - (keys.KeyD || keys.ArrowRight ? 1 : 0) - touch.mx, -1, 1);
+  const maxF = jet ? 32 : 25;
+  let v = car.speed;
+  if (up) v += (v < 0 ? 12 : (jet ? 13 : 8.5) * (1 - v / maxF)) * dt;
+  else if (down) v -= (v > 0.5 ? 12 : 4) * dt;
+  else v -= Math.sign(v) * Math.min(Math.abs(v), 2.2 * dt);
+  if (keys.Space || touch.brake) v -= Math.sign(v) * Math.min(Math.abs(v), 14 * dt);
+  v = clamp(v, -6, maxF);
+  let h = m.rotation.y; h += steer * (jet ? 2.0 : 1.2) / (1 + Math.abs(v) / 20) * clamp(Math.abs(v) / 3, 0, 1) * (v >= 0 ? 1 : -1) * dt;
+  const ox = p.x, oz = p.z;
+  p.x += Math.sin(h) * v * dt; p.z += Math.cos(h) * v * dt; m.rotation.y = h;
+  if (world.onLand(p.x, p.z, jet ? 0.9 : 1.4) || Math.abs(p.x) > 1700 || Math.abs(p.z) > 1700) { p.x = ox; p.z = oz; v *= -0.25; }
+  car.speed = v; boats.bob(car, dt, -steer * Math.min(1, Math.abs(v) / 14) * (jet ? 0.45 : 0.3));
+  animateHuman(player.human, 0, 0, dt, Math.abs(v), -steer * 0.6); player.human.group.visible = true;
+  player.x = p.x; player.z = p.z; player.h = h;
+}
+
 function updateCar(dt) {
   const car = player.car, m = car.mesh, p = m.position;
   const bike = car.type === 'bike', maxF = bike ? 38 : car.type === 'truck' ? 20 : car.type === 'police' ? 32 : 28;
@@ -408,7 +449,7 @@ function updateCamera(dt) {
   if (look.first) { camera.position.copy(pos); camera.lookAt(pos.clone().add(dir)); }
   else {
     const tgt = new THREE.Vector3(player.x, targetY, player.z);
-    let dist = player.mode === 'car' ? (player.car.type === 'truck' ? 11 : player.car.type === 'bike' ? 6 : 8.5) : inside ? 3 : 4.2;
+    let dist = player.mode === 'car' ? (player.car.type === 'truck' ? 11 : player.car.type === 'bike' || player.car.type === 'jetski' ? 6 : player.car.type === 'boat' ? 8 : 8.5) : inside ? 3 : 4.2;
     for (let d = 0.6; d <= dist; d += 0.5) {          // pull the camera in front of walls
       const x = tgt.x - dir.x * d, y = tgt.y - dir.y * d, z = tgt.z - dir.z * d;
       if (inside) { const b = inside.int.bounds; if (x < b.x0 || x > b.x1 || z < b.z0 || z > b.z1 + 0.3 || y > inside.int.H - 0.2) { dist = Math.max(0.8, d - 0.6); break; } continue; }
@@ -452,9 +493,11 @@ function updateHud() {
     if (n) prompt = (isTouchDevice ? 'Tap ENTER to talk to ' : 'F  talk to ') + n.name;
     else if (Math.hypot(e.x - player.x, e.z - player.z) < 2.2) prompt = isTouchDevice ? 'Tap ENTER to leave' : 'F  leave ' + inside.door.name;
   } else if (player.mode === 'foot' && nearestDoor()) { const d = nearestDoor(); prompt = (isTouchDevice ? 'Tap ENTER to go into ' : 'F  enter ') + d.name; }
+  else if (player.mode === 'car' && player.car.water) prompt = isTouchDevice ? 'Tap ENTER / EXIT to get off near land' : 'F  get off (near land)';
   else if (player.mode === 'car') prompt = isTouchDevice ? 'Tap ENTER / EXIT to leave the car' : 'F  exit vehicle';
   else {
-    for (const c of traffic.cars) if (!c.driven && Math.hypot(c.mesh.position.x - player.x, c.mesh.position.z - player.z) < 5.5) { prompt = (isTouchDevice ? 'Tap ENTER / EXIT to take ' : 'F  take ') + (c.type === 'police' ? 'police car' : c.type === 'bike' ? 'motorcycle' : c.type); break; }
+    for (const c of boats.list) if (!c.driven && !c.ai && Math.hypot(c.mesh.position.x - player.x, c.mesh.position.z - player.z) < 5.5) { prompt = (isTouchDevice ? 'Tap ENTER to take ' : 'F  take ') + (c.type === 'jetski' ? 'jet ski' : 'speedboat'); break; }
+    if (!prompt) for (const c of traffic.cars) if (!c.driven && Math.hypot(c.mesh.position.x - player.x, c.mesh.position.z - player.z) < 5.5) { prompt = (isTouchDevice ? 'Tap ENTER / EXIT to take ' : 'F  take ') + (c.type === 'police' ? 'police car' : c.type === 'bike' ? 'motorcycle' : c.type); break; }
   }
   hud.prompt.textContent = prompt;
   hud.cross.style.display = player.mode === 'foot' && (look.first || !weapons.def.melee) ? 'block' : 'none';
@@ -478,7 +521,7 @@ function frame() {
   if (!paused) {
     time += dt;
     if (touch.lookX || touch.lookY) { applyLook(touch.lookX, touch.lookY, 1.4); touch.lookX = touch.lookY = 0; }
-    if (!Police.isBusted()) { player.mode === 'car' ? updateCar(dt) : updateFoot(dt); }
+    if (!Police.isBusted()) { player.mode === 'car' ? (player.car.water ? updateBoat(dt) : updateCar(dt)) : updateFoot(dt); }
     const blockers = [{ x: player.x, z: player.z }];
     for (const p of peds.list) if (p.state !== 'down' && p.kind !== 'lie') blockers.push(p);
     const extra = [];
@@ -494,7 +537,7 @@ function frame() {
       }
     }
     focus.set(player.x, 0, player.z);
-    peds.update(dt, focus);
+    peds.update(dt, focus); boats.update(dt, focus);
     Police.update(dt);
     world.update(dt, focus);
     weapons.update(dt, { x: player.x, z: player.z, inside: !!inside, onPickup: (n) => toast('Picked up: ' + n) });
@@ -510,4 +553,4 @@ function frame() {
 }
 { const l = $('loading'); if (l) l.remove(); }
 frame();
-window.GLA = { Police, player, world, traffic, peds, ui, weapons, interiors };   // handy for debugging in the console
+window.GLA = { Police, player, world, traffic, peds, ui, weapons, interiors, boats };   // handy for debugging in the console
