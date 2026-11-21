@@ -53,6 +53,10 @@
   #prompt{position:fixed;left:50%;bottom:16%;transform:translateX(-50%);font:bold 16px Arial;letter-spacing:2px;text-shadow:0 0 4px #000;z-index:10}
   #zone{position:fixed;left:22px;bottom:20px;font:bold 15px Arial;letter-spacing:3px;text-transform:uppercase;text-shadow:0 0 4px #000;z-index:10}
   #camtag{position:fixed;left:22px;top:16px;font-size:11px;letter-spacing:2px;opacity:.65;z-index:10;text-shadow:0 0 3px #000}
+  #weapon-hud{position:fixed;right:22px;bottom:22px;font:bold 18px Arial;letter-spacing:2px;text-shadow:0 0 4px #000;z-index:10;text-align:right}
+  #dialogue{position:fixed;left:50%;bottom:10%;transform:translateX(-50%);max-width:70%;background:#0c0e13d9;border:1px solid #ff4fa3aa;border-radius:10px;padding:10px 18px;font:15px Arial;text-align:center;z-index:12;display:none;line-height:1.4}
+  #dialogue b{color:#ff9fd0;letter-spacing:2px}
+  body.touch #weapon-hud{display:none}
   #crosshair{position:fixed;left:50%;top:50%;width:8px;height:8px;margin:-4px 0 0 -4px;border:2px solid #fff;border-radius:50%;opacity:.7;z-index:10;display:none}
   #keys{position:fixed;left:22px;top:36px;font-size:11px;line-height:1.6;opacity:.55;z-index:10;text-shadow:0 0 3px #000}
 
@@ -110,10 +114,12 @@
 <!-- HUD -->
 <div id="camtag"></div>
 <div id="clock"></div>
-<div id="keys">WASD move &nbsp; Shift sprint &nbsp; Click punch<br>F car in/out &nbsp; V camera &nbsp; M map</div>
+<div id="keys">WASD move &nbsp; Shift sprint &nbsp; Click attack/shoot<br>F enter/exit/talk &nbsp; R reload &nbsp; 1-6 / wheel weapons<br>V camera &nbsp; M map</div>
 <div id="crosshair"></div>
 <div id="speed"></div>
 <div id="prompt"></div>
+<div id="weapon-hud"></div>
+<div id="dialogue"></div>
 <div id="zone"></div>
 
 <!-- Police HUD -->
