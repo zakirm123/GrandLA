@@ -12,7 +12,7 @@ const angDiff = (a, b) => ((a - b + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2
 const LANE = 3.5;
 
 export class Traffic {
-  constructor(scene, world, counts = { sedan: 14, hatch: 8, suv: 8, taxi: 5, van: 4, truck: 8, police: 9 }) {
+  constructor(scene, world, counts = { sedan: 20, hatch: 11, suv: 11, taxi: 7, van: 6, truck: 10, police: 11, bike: 10 }) {
     this.scene = scene; this.world = world; this.cars = [];
     this.total = world.edges.reduce((s, e) => s + e.len, 0);
     for (const [type, n] of Object.entries(counts)) for (let i = 0; i < n; i++) this.spawn(type);
@@ -39,8 +39,9 @@ export class Traffic {
       const mesh = makeVehicle(type);
       mesh.position.set(p.x, 0.05, p.z); mesh.rotation.y = Math.atan2(p.tx, p.tz);
       this.scene.add(mesh);
-      const maxV = type === 'truck' ? rnd(7, 10) : type === 'van' ? rnd(9, 12) : type === 'police' ? rnd(10, 13) : rnd(11, 16);
-      const car = { mesh, type, speed: 0, edge: e, sign, next: null, maxV, stuck: 0, ignore: 0, parked: false, radius: type === 'truck' ? 3.6 : 2.4 };
+      const maxV = type === 'bike' ? rnd(12, 16) : type === 'truck' ? rnd(7, 10) : type === 'van' ? rnd(9, 12) : type === 'police' ? rnd(10, 13) : rnd(11, 16);
+      const car = { mesh, type, speed: 0, edge: e, sign, next: null, maxV, stuck: 0, ignore: 0, parked: false, radius: type === 'truck' ? 3.6 : type === 'bike' ? 1.3 : 2.4 };
+      if (type === 'bike') { const rider = makeHuman({ quality: 'mid', shirt: pick([0x111111, 0xc0392b, 0x2e86c1]), jacket: pick([0x111111, 0x5a3a1a]), hat: 0x151515, longSleeve: true }); rider.pose = 'ride'; rider.group.position.copy(mesh.userData.seat); rider.group.position.y = mesh.userData.seat.y - 0.955 + 0.02; animateHuman(rider, 0, 0, 1 / 60); mesh.add(rider.group); car.rider = rider; }
       this.cars.push(car); return car;
     }
     return null;
@@ -117,7 +118,7 @@ export class Traffic {
 const SIDEWALK = 10;
 
 export class Peds {
-  constructor(scene, world, nWalk = 70, nStroll = 22, nLie = 18) {
+  constructor(scene, world, nWalk = 110, nStroll = 40, nLie = 30) {
     this.scene = scene; this.world = world; this.list = [];
     this.total = world.edges.reduce((s, e) => s + e.len, 0);
     for (let i = 0; i < nWalk; i++) this.addWalker();
@@ -150,12 +151,12 @@ export class Peds {
   }
 
   addWalker() {
-    const p = this.base('walk', { jacket: Math.random() < 0.3 ? pick([0x2b2f36, 0x5a4632, 0x7a2e2e, 0x2f4f6f]) : undefined, hat: Math.random() < 0.12 ? pick([0x222222, 0xc0392b, 0x2c3e50]) : undefined });
+    const p = this.base('walk', { quality: 'mid', jacket: Math.random() < 0.3 ? pick([0x2b2f36, 0x5a4632, 0x7a2e2e, 0x2f4f6f]) : undefined, hat: Math.random() < 0.12 ? pick([0x222222, 0xc0392b, 0x2c3e50]) : undefined });
     this.placeWalker(p);
   }
 
   addStroller(isl) {
-    const p = this.base('stroll', { shirt: pick([0xff8c42, 0x3fc1c9, 0xfc5185, 0xf9ed69]), pants: pick([0xf5f5f5, 0x3a86ff, 0xffbe0b]), swim: true });
+    const p = this.base('stroll', { quality: 'mid', shirt: pick([0xff8c42, 0x3fc1c9, 0xfc5185, 0xf9ed69]), pants: pick([0xf5f5f5, 0x3a86ff, 0xffbe0b]), swim: true });
     Object.assign(p, { isl, u: Math.random() * 10000, dir: Math.random() < 0.5 ? 1 : -1, speed: rnd(0.8, 1.2) });
   }
 
@@ -176,13 +177,18 @@ export class Peds {
       const x = isl.cx + (a % 2 === 0 ? along * isl.hw : (a === 1 ? 1 : -1) * (isl.hw + rnd(4, 18)));
       const z = isl.cz + (a % 2 === 0 ? (a === 0 ? -1 : 1) * (isl.hd + rnd(4, 18)) : along * isl.hd);
       if (this.world.onBridge(x, z, -14)) continue;
-      const p = this.base('lie', { shirt: pick([0xff5d8f, 0x4cc9f0, 0xffd60a]), pants: pick([0xff5d8f, 0x4cc9f0, 0x222222]), swim: true });
+      const p = this.base('lie', { quality: 'mid', shirt: pick([0xff5d8f, 0x4cc9f0, 0xffd60a]), pants: pick([0xff5d8f, 0x4cc9f0, 0x222222]), swim: true });
       p.x = x; p.z = z; p.h = Math.random() * 6.28;
       const towel = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 2.1), new THREE.MeshLambertMaterial({ color: pick([0xff595e, 0xffca3a, 0x8ac926, 0x1982c4, 0x6a4c93]) }));
       towel.rotation.x = -Math.PI / 2; towel.position.set(x, 0.03, z); towel.rotation.z = p.h; this.scene.add(towel);
       return;
     }
     this.list.pop && 0;
+  }
+
+  scare(p, from) {
+    if (p.state !== 'ok' || p.kind === 'lie' || p.kind === 'stroll') return;
+    p.state = 'flee'; p.fleeT = 6 + Math.random() * 4; p.speed = 4.2; p.h = Math.atan2(p.x - from.x, p.z - from.z);
   }
 
   hit(p, vx, vz) {
@@ -205,6 +211,13 @@ export class Peds {
           p.state = 'ok'; p.tilt = 0; if (p.kind === 'walk') this.placeWalker(p, focus);
         }
         continue;
+      }
+      if (p.state === 'flee') {
+        p.fleeT -= dt; const nx = p.x + Math.sin(p.h) * p.speed * dt, nz = p.z + Math.cos(p.h) * p.speed * dt;
+        if (this.world.isBlocked(nx, nz, 0.4)) p.h += 1.6; else { p.x = nx; p.z = nz; }
+        if (p.fleeT <= 0) { p.state = 'ok'; p.speed = 1.4; if (p.kind === 'walk') this.placeWalker(p, focus); }
+        p.phase += p.speed * dt * 3.2; g.position.set(p.x, this.world.groundY(p.x, p.z), p.z); g.rotation.set(0, p.h, 0);
+        animateHuman(p.human, p.phase, 1, dt, 6); continue;
       }
       if (p.kind === 'lie') { g.position.set(p.x, gy + 0.2, p.z); g.rotation.set(-Math.PI / 2, p.h, 0); continue; }
       if (p.kind === 'stroll') {
@@ -231,7 +244,7 @@ export class Peds {
       }
       p.phase += p.speed * dt * 4.5;
       g.position.set(p.x, gy, p.z); g.rotation.set(0, p.h, 0);
-      if (Math.abs(p.x - focus.x) < 140 && Math.abs(p.z - focus.z) < 140) animateHuman(p.human, p.phase, 0.6);
+      if (Math.abs(p.x - focus.x) < 140 && Math.abs(p.z - focus.z) < 140) animateHuman(p.human, p.phase, p.state === 'flee' ? 1 : 0.6, dt, p.state === 'flee' ? 6 : 1.4);
     }
   }
 }
