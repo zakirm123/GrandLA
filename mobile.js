@@ -29,6 +29,8 @@ const css = `
 #tb-attack{right:calc(112px + env(safe-area-inset-right));bottom:calc(22px + env(safe-area-inset-bottom))}
 #tb-sprint{right:calc(34px + env(safe-area-inset-right));bottom:calc(122px + env(safe-area-inset-bottom))}
 #tb-brake{right:calc(112px + env(safe-area-inset-right));bottom:calc(22px + env(safe-area-inset-bottom))}
+#tb-reload{right:calc(190px + env(safe-area-inset-right));bottom:calc(28px + env(safe-area-inset-bottom))}
+#tb-weapon{right:calc(190px + env(safe-area-inset-right));bottom:calc(84px + env(safe-area-inset-bottom))}
 #tb-cam{left:calc(14px + env(safe-area-inset-left));top:calc(14px + env(safe-area-inset-top))}
 #tb-map{left:calc(66px + env(safe-area-inset-left));top:calc(14px + env(safe-area-inset-top))}
 #tb-pause{left:calc(118px + env(safe-area-inset-left));top:calc(14px + env(safe-area-inset-top))}
@@ -45,7 +47,9 @@ export function initMobile(h) {
     <div id="look-zone" class="zone"></div>
     <div id="joy-zone" class="zone"><div id="joy-base"><div id="joy-knob"></div></div></div>
     <div class="tbtn big" id="tb-action">ENTER<br>/ EXIT</div>
-    <div class="tbtn mid" id="tb-attack">PUNCH</div>
+    <div class="tbtn mid" id="tb-attack">FIRE</div>
+    <div class="tbtn small" id="tb-reload">RELOAD</div>
+    <div class="tbtn small" id="tb-weapon">GUN</div>
     <div class="tbtn mid hidden" id="tb-brake">BRAKE</div>
     <div class="tbtn mid" id="tb-sprint">RUN</div>
     <div class="tbtn small" id="tb-cam">VIEW</div>
@@ -64,7 +68,7 @@ export function initMobile(h) {
   };
   const tap = (el, fn) => el.addEventListener('pointerdown', (e) => { e.preventDefault(); fn(); });
   hold($('tb-sprint'), 'sprint'); hold($('tb-brake'), 'brake'); hold($('tb-attack'), 'attack');
-  tap($('tb-action'), h.onEnter); tap($('tb-cam'), h.onCamera); tap($('tb-map'), h.onMap); tap($('tb-pause'), h.onPause);
+  tap($('tb-action'), h.onEnter); tap($('tb-reload'), h.onReload || (() => {})); tap($('tb-weapon'), h.onWeapon || (() => {})); tap($('tb-cam'), h.onCamera); tap($('tb-map'), h.onMap); tap($('tb-pause'), h.onPause);
 
   // ---- floating joystick
   const zone = $('joy-zone'), base = $('joy-base'), knob = $('joy-knob'), R = 55;
@@ -98,7 +102,7 @@ export function initMobile(h) {
     enabled: true,
     setMode(m) {
       if (m === mode) return; mode = m;
-      $('tb-attack').classList.toggle('hidden', m === 'car'); $('tb-sprint').classList.toggle('hidden', m === 'car'); $('tb-brake').classList.toggle('hidden', m !== 'car');
+      for (const id of ['tb-attack', 'tb-reload', 'tb-weapon']) $(id).classList.toggle('hidden', m === 'car'); $('tb-sprint').classList.toggle('hidden', m === 'car'); $('tb-brake').classList.toggle('hidden', m !== 'car');
       touch.sprint = touch.attack = touch.brake = false;
     },
     show(v) { root.style.display = v ? 'block' : 'none'; },
