@@ -1,7 +1,7 @@
 // world.js - Blacktop City (Update 1.2): islands, merged road mesh with markings, raised sidewalks,
 // bridges, PBR water, beaches, plus sky/day-night via gfx.js, buildings.js and props.js.
 import * as THREE from 'three';
-import { asphaltMaterial, sidewalkMaterial, sandMaterial, waterMaterial, createEnvironment, canvasTex } from './gfx.js';
+import { asphaltMaterial, sidewalkMaterial, sandMaterial, waterMaterial, createEnvironment, canvasTex, WIND } from './gfx.js';
 import { buildBuildings, BASE_Y } from './buildings.js';
 import { buildProps } from './props.js';
 
@@ -11,11 +11,19 @@ export const ISLANDS = [
   { name: 'East Bay',    cx: 430,  cz: 0,   hw: 110, hd: 150, xs: [350, 430, 510], zs: [-80, 0, 80] },
   { name: 'West Harbor', cx: -430, cz: 0,   hw: 110, hd: 150, xs: [-510, -430, -350], zs: [-80, 0, 80] },
   { name: 'South Cape',  cx: 0,    cz: 410, hw: 130, hd: 90,  xs: [-80, 0, 80], zs: [350, 430] },
+  { name: 'North Shore', cx: 0,    cz: -410, hw: 130, hd: 90, xs: [-80, 0, 80], zs: [-430, -350] },
+  { name: 'Palm Cove',   cx: 430,  cz: -350, hw: 110, hd: 90, xs: [350, 430, 510], zs: [-390, -310] },
+  { name: 'Marina Isle', cx: 430,  cz: 350, hw: 110, hd: 90,  xs: [350, 430, 510], zs: [310, 390] },
+  { name: 'Harbor Isle', cx: -430, cz: 350, hw: 110, hd: 90,  xs: [-510, -430, -350], zs: [310, 390] },
 ];
 export const BRIDGES = [
   { axis: 'x', c: 0, from: 225, to: 295,  a: [160, 0],  b: [350, 0] },
   { axis: 'x', c: 0, from: -295, to: -225, a: [-160, 0], b: [-350, 0] },
   { axis: 'z', c: 0, from: 225, to: 295,  a: [0, 160],  b: [0, 350] },
+  { axis: 'z', c: 0, from: -295, to: -225, a: [0, -160], b: [0, -350] },
+  { axis: 'z', c: 430, from: -235, to: -175, a: [430, -80], b: [430, -310] },
+  { axis: 'z', c: 430, from: 175, to: 235, a: [430, 80], b: [430, 310] },
+  { axis: 'z', c: -430, from: 175, to: 235, a: [-430, 80], b: [-430, 310] },
 ];
 const SAND = 25, BRIDGE_HALF = 9, STATION_BLOCK = { x0: 0, x1: 80, z0: 0, z1: 80 }, CURB = BASE_Y - 0.02;
 
@@ -45,7 +53,7 @@ class GeoBuilder {
 
 export function buildWorld(scene, renderer) {
   const R = rng(1337);
-  const colliders = [], nodes = new Map(), edges = [], roadPoints = [], buildings = [];
+  const colliders = [], nodes = new Map(), edges = [], roadPoints = [], buildings = [], doors = [];
 
   // ------------------------------------------------------------- road graph
   const node = (x, z) => { const k = x + ',' + z; if (!nodes.has(k)) nodes.set(k, { x, z, adj: [] }); return nodes.get(k); };
@@ -187,14 +195,14 @@ export function buildWorld(scene, renderer) {
   }
 
   // ----------------------------------------------------- buildings + props
-  const ctx = { ISLANDS, STATION_BLOCK, R, colliders, buildings, edges, onBridge, onLand, inSlab, distToRoads };
-  const station = buildBuildings(scene, ctx);
-  buildProps(scene, ctx);
+  const ctx = { ISLANDS, STATION_BLOCK, R, colliders, buildings, doors, edges, onBridge, onLand, inSlab, distToRoads };
+  const { station } = buildBuildings(scene, ctx);
+  const props = buildProps(scene, ctx);
 
   // ---------------------------------------------------------------- per frame
   let lx = null, lz = null, t = 0;
   function update(dt, focus) {
-    t += dt; env.update(dt, focus);
+    t += dt; WIND.time.value += dt; env.update(dt, focus);
     ocean.position.x = focus.x; ocean.position.z = focus.z;
     const n = waterMat.userData.normalMap; n.offset.x += dt * 0.004; n.offset.y += dt * 0.0025;
     if (lx !== null) { n.offset.x += (focus.x - lx) * 220 / 6000; n.offset.y -= (focus.z - lz) * 220 / 6000; }
@@ -212,8 +220,9 @@ export function buildWorld(scene, renderer) {
     if (env.sun.shadow.map) { env.sun.shadow.map.dispose(); env.sun.shadow.map = null; }
     scene.fog.far = level === 'low' ? 600 : level === 'medium' ? 900 : 1200; scene.fog.near = scene.fog.far * 0.22;
     clouds.forEach((c, i) => { c.visible = level === 'low' ? i % 3 === 0 : true; });
+    if (props.grass) props.grass.count = Math.floor(props.grassTotal * (level === 'low' ? 0.3 : level === 'medium' ? 0.65 : 1));
   }
 
-  return { islands: ISLANDS, bridges: BRIDGES, colliders, nodes: [...nodes.values()], edges, roadPoints, buildings, station,
+  return { islands: ISLANDS, bridges: BRIDGES, doors, colliders, nodes: [...nodes.values()], edges, roadPoints, buildings, station,
     isBlocked, onLand, onBridge, update, setGraphics, distToRoads, env, groundY, inSlab };
 }
