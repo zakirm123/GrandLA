@@ -2,6 +2,9 @@
 import * as THREE from 'three';
 import { buildWorld } from './world.js';
 import { Traffic, Peds, makeHuman, makeVehicle, animateHuman, spinWheels } from './actors.js';
+import { makeWeapon } from './models.js';
+import { createInteriors } from './interior.js';
+import { createWeapons, WEAPONS } from './weapons.js';
 import { createPost } from './gfx.js';
 import { touch, isTouchDevice, initMobile } from './mobile.js';
 import { createUI } from './ui.js';
@@ -20,8 +23,13 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 $('game').appendChild(renderer.domElement);
 const scene = new THREE.Scene();
+const iScene = new THREE.Scene();                      // interiors live in their own scene (world is not rendered while inside)
+iScene.background = new THREE.Color(0x14121a);
+iScene.add(new THREE.HemisphereLight(0xfff4e8, 0x887766, 1.1));
+let activeScene = scene;
 const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.3, 4000);
 camera.rotation.order = 'YXZ';
+scene.add(camera);
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
@@ -36,10 +44,19 @@ const peds = new Peds(scene, world);
 
 const player = {
   x: 10, z: 10, y: 0.17, h: 0, mode: 'foot', car: null, phase: 0, moving: false, punchT: 0,
-  human: makeHuman({ female: false, skin: 0xe0ac84, shirt: 0x1d1f24, pants: 0x2a3a55, hair: 0x1b1310, jacket: 0x6b1f1f, longSleeve: true, glasses: false }),
+  human: makeHuman({ female: false, skin: 0xe0ac84, shirt: 0x1d1f24, pants: 0x2a3a55, hair: 0x1b1310, jacket: 0x6b1f1f, longSleeve: true, glasses: false, quality: 'high', hairStyle: 'short' }),
+  aimT: 0, latch: false,
 };
 scene.add(player.human.group);
 const look = { yaw: 0, pitch: 0, yawOff: 0, pitchOff: 0, idle: 0, first: false };
+const interiors = createInteriors(iScene);
+let inside = null;                                      // { int, door } while the player is in a building
+const colliders = () => (inside ? inside.int.colliders : world.colliders);
+const blockedAt = (x, z, r) => {
+  if (!inside) return world.isBlocked(x, z, r);
+  const b = inside.int.bounds; if (x < b.x0 + r - 0.4 || x > b.x1 - r + 0.4 || z < b.z0 + r - 0.4 || z > b.z1 + r - 0.2) return true;
+  return false;
+};
 
 // -------------------------------------------------------------------- UI
 let paused = true, lastPaused = null;
@@ -58,7 +75,9 @@ function applyGraphics() {
 }
 // touch controls
 const mobile = initMobile({
-  onEnter: () => { if (ui.hasStarted() && !ui.isMenuOpen() && !ui.isMapOpen()) toggleCar(); },
+  onEnter: () => { if (ui.hasStarted() && !ui.isMenuOpen() && !ui.isMapOpen()) interact(); },
+  onReload: () => weapons.reload(),
+  onWeapon: () => weapons.cycle(1),
   onCamera: () => { look.first = !look.first; },
   onMap: () => { if (ui.hasStarted() && !ui.isMenuOpen()) ui.toggleMap(); },
   onPause: () => { if (ui.hasStarted()) { ui.closeMap(); ui.openMenu('main'); } },
@@ -73,7 +92,7 @@ Police.init({
   colliders: world.colliders,
   isBlocked: (x, z, r) => world.isBlocked(x, z, r),
   roadNodes: world.roadPoints,
-  getPlayerPosition: () => ({ x: player.x, y: 0, z: player.z }),
+  getPlayerPosition: () => (inside ? { x: inside.door.ox, y: 0, z: inside.door.oz } : { x: player.x, y: 0, z: player.z }),
   getGroundY: () => 0.05,
   getVolume: () => ui.settings.vol / 100,
   createCruiser: () => makeVehicle('police'),
@@ -87,8 +106,35 @@ Police.init({
   respawn: respawnPlayer,
 });
 function crime(type) { ui.stats.crimes++; Police.reportCrime(type); }
+let lastCopShot = 0;
+const weapons = createWeapons({
+  scene, getScene: () => activeScene, world, peds, getVolume: () => ui.settings.vol / 100, onCrime: crime,
+  onHitCop: () => { const n = performance.now(); if (n - lastCopShot > 2500) { lastCopShot = n; crime('policeCrash'); } },
+});
+{ // weapon pickups scattered around the islands (two right next to the spawn point)
+  const pts = [{ x: 18, z: 8 }, { x: 4, z: 20 }], rp = world.roadPoints;
+  for (let i = 0; i < 40 && pts.length < 30; i++) { const q = rp[(Math.random() * rp.length) | 0], x = q.x + 7.5, z = q.z + (Math.random() - 0.5) * 6; if (!world.isBlocked(x, z, 0.8) && !world.onBridge(x, z, 0)) pts.push({ x, z }); }
+  weapons.placePickups(pts);
+}
+const toast = (t) => { const el = $('dialogue'); if (!el) return; el.innerHTML = `<b>${t}</b>`; el.style.display = 'block'; dlg.t = 2.2; };
+const dlg = { t: 0, i: 0 };
+function say(name, line) { const el = $('dialogue'); if (!el) return; el.innerHTML = `<b>${name}</b><br>${line}`; el.style.display = 'block'; dlg.t = 5; }
+// hand / viewmodel meshes
+const handMesh = {}, viewMesh = {}; let shownW = null;
+function syncWeaponMeshes() {
+  const w = weapons.current;
+  if (w === shownW && !weapons.weaponMesh.dirty) return;
+  shownW = w; weapons.weaponMesh.dirty = false;
+  for (const k in handMesh) handMesh[k].visible = false;
+  for (const k in viewMesh) viewMesh[k].visible = false;
+  if (WEAPONS[w].melee && w !== 'knife') return;
+  if (!handMesh[w]) { handMesh[w] = makeWeapon(w); player.human.handR.add(handMesh[w]); handMesh[w].rotation.x = Math.PI / 2; handMesh[w].position.set(0, -0.02, 0.01); }
+  if (!viewMesh[w]) { viewMesh[w] = makeWeapon(w); viewMesh[w].rotation.y = Math.PI; viewMesh[w].scale.setScalar(1.0); camera.add(viewMesh[w]); }
+  handMesh[w].visible = true; viewMesh[w].visible = look.first;
+}
 
 function respawnPlayer() {
+  if (inside) exitInterior(true);
   if (player.car) { traffic.park(player.car); player.car = null; }
   player.mode = 'foot';
   player.x = world.station.x; player.z = world.station.z; player.h = 0;
@@ -106,8 +152,11 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyM') ui.toggleMap();
   else if (ui.isMapOpen()) { if (e.code === 'Escape') ui.closeMap(); }
   else if (e.code === 'KeyV') look.first = !look.first;
-  else if (e.code === 'KeyF') toggleCar();
+  else if (e.code === 'KeyF') interact();
+  else if (e.code === 'KeyR') weapons.reload();
+  else if (/^Digit[1-6]$/.test(e.code)) weapons.select(['fists', 'knife', 'pistol', 'smg', 'shotgun', 'rifle'][+e.code[5] - 1]);
 });
+addEventListener('wheel', (e) => { if (ui.hasStarted() && !ui.isMenuOpen() && !ui.isMapOpen() && player.mode === 'foot') weapons.cycle(e.deltaY > 0 ? 1 : -1); }, { passive: true });
 addEventListener('keyup', (e) => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 addEventListener('mousedown', (e) => { if (e.button === 0) mouseDown = true; initEngine(); });
@@ -136,7 +185,7 @@ renderer.domElement.addEventListener('click', () => {
 // --------------------------------------------------------------- collisions
 function pushOut(pos, r) {
   let hit = false;
-  for (const b of world.colliders) {
+  for (const b of colliders()) {
     const { min, max } = b;
     if (pos.x < min.x - r || pos.x > max.x + r || pos.z < min.z - r || pos.z > max.z + r) continue;
     const cx = clamp(pos.x, min.x, max.x), cz = clamp(pos.z, min.z, max.z);
@@ -154,7 +203,7 @@ function pushOut(pos, r) {
 
 const circlesFor = (car) => {
   const h = car.mesh.rotation.y, s = Math.sin(h), c = Math.cos(h), p = car.mesh.position;
-  const offs = car.type === 'truck' ? [2.4, 0, -2.4] : [1.4, -1.4], r = car.type === 'truck' ? 1.4 : 1.15;
+  const bike = car.type === 'bike', offs = car.type === 'truck' ? [2.4, 0, -2.4] : bike ? [0.55, -0.55] : [1.4, -1.4], r = car.type === 'truck' ? 1.4 : bike ? 0.65 : 1.15;
   return offs.map(o => ({ x: p.x + s * o, z: p.z + c * o, r }));
 };
 
@@ -171,6 +220,7 @@ function toggleCar() {
       player.x = p.x; player.z = p.z;
     }
     pushOut(player, 0.5);
+    if (car.type === 'bike') { scene.add(player.human.group); player.human.pose = null; car.mesh.rotation.z = 0; }
     traffic.park(car); car.parkedT = 0; player.car = null; player.mode = 'foot';
     look.yaw = h; look.pitch = 0;
   } else {
@@ -184,8 +234,53 @@ function toggleCar() {
     if (best.type === 'police') Police.unregisterCar(best);
     traffic.take(best); best.speed = 0; best.parkedT = 0;
     player.car = best; player.mode = 'car'; look.yawOff = 0; look.pitchOff = 0;
+    if (best.type === 'bike') {
+      if (best.rider) best.rider.group.visible = false;
+      const hg = player.human.group; best.mesh.add(hg); hg.position.copy(best.mesh.userData.seat); hg.position.y = best.mesh.userData.seat.y - 0.955 + 0.02; hg.rotation.set(0, 0, 0); hg.visible = true;
+      player.human.pose = 'ride'; animateHuman(player.human, 0, 0, 1 / 60);
+    }
     crime('carTheft');
   }
+}
+
+// ------------------------------------------------------------ buildings / interiors
+function nearestDoor() {
+  let best = null, bd = 3.8;
+  for (const d of world.doors) { const dd = Math.min(Math.hypot(d.x - player.x, d.z - player.z), Math.hypot(d.ox - player.x, d.oz - player.z)); if (dd < bd) { bd = dd; best = d; } }
+  return best;
+}
+function nearNpc() {
+  if (!inside) return null;
+  for (const n of inside.int.npcs) if (Math.hypot(n.x - player.x, n.z - player.z) < 2.4) return n;
+  return null;
+}
+function enterInterior(d) {
+  const int = interiors.get(d.kind); int.show(true);
+  activeScene = iScene; scene.remove(camera); iScene.add(camera);
+  iScene.add(player.human.group);
+  inside = { int, door: d };
+  player.x = int.spawn.x; player.z = int.spawn.z; player.h = Math.PI; player.y = 0; look.yaw = Math.PI; look.pitch = 0;
+  player.human.group.position.set(player.x, 0, player.z);
+  if (d.kind === 'luna') say('Luna', "Well, well... look who found my place. Come in, don't be shy.");
+  else toast(d.name);
+}
+function exitInterior(forced) {
+  if (!inside) return;
+  inside.int.show(false);
+  activeScene = scene; iScene.remove(camera); scene.add(camera); scene.add(player.human.group);
+  player.x = inside.door.ox; player.z = inside.door.oz; player.h = 0; player.y = world.groundY(player.x, player.z); look.yaw = 0; look.pitch = 0;
+  inside = null;
+}
+function interact() {
+  if (Police.isBusted()) return;
+  if (inside) {
+    const n = nearNpc();
+    if (n) { say(n.name, n.lines[dlg.i++ % n.lines.length]); return; }
+    const e = inside.int.exit; if (Math.hypot(e.x - player.x, e.z - player.z) < 2.2) exitInterior();
+    return;
+  }
+  if (player.mode === 'foot') { const d = nearestDoor(); if (d && !(Police.getStars() >= 4 && d.kind !== 'luna' && false)) { enterInterior(d); return; } }
+  toggleCar();
 }
 
 // ----------------------------------------------------------------- player
@@ -200,46 +295,55 @@ function updateFoot(dt) {
     mx /= len; mz /= len;
     const speed = (keys.ShiftLeft || keys.ShiftRight || touch.sprint ? 9 : 5) * Math.max(0.35, mag);
     const nx = player.x + mx * speed * dt, nz = player.z + mz * speed * dt;
-    if (!world.isBlocked(nx, nz, 0.4)) { player.x = nx; player.z = nz; }
-    else if (!world.isBlocked(nx, player.z, 0.4)) player.x = nx;
-    else if (!world.isBlocked(player.x, nz, 0.4)) player.z = nz;
+    if (!blockedAt(nx, nz, 0.4)) { player.x = nx; player.z = nz; }
+    else if (!blockedAt(nx, player.z, 0.4)) player.x = nx;
+    else if (!blockedAt(player.x, nz, 0.4)) player.z = nz;
     pushOut(player, 0.45);
     player.h += clamp(angDiff(Math.atan2(mx, mz), player.h), -12 * dt, 12 * dt);
     player.phase += speed * dt * 1.6;
   }
-  // punch
-  player.punchT = Math.max(0, player.punchT - dt);
-  if ((mouseDown || touch.attack) && player.punchT <= 0 && (isTouchDevice || document.pointerLockElement === renderer.domElement)) {
-    player.punchT = 0.45;
-    const fx = Math.sin(look.first ? look.yaw : player.h), fz = Math.cos(look.first ? look.yaw : player.h);
-    for (const p of peds.list) {
-      if (p.state === 'down') continue;
-      const dx = p.x - player.x, dz = p.z - player.z, d = Math.hypot(dx, dz);
-      if (d < 1.9 && (dx * fx + dz * fz) / (d || 1) > 0.2 && peds.hit(p, fx * 4, fz * 4)) { crime('pedestrian'); break; }
-    }
+  // ---- attack / shoot
+  player.punchT = Math.max(0, player.punchT - dt); player.aimT = Math.max(0, player.aimT - dt);
+  const w = weapons.def, gun = !w.melee, wantFire = (mouseDown || touch.attack) && (isTouchDevice || document.pointerLockElement === renderer.domElement);
+  const camDir = camera.getWorldDirection(new THREE.Vector3());
+  if (wantFire && (w.auto || !player.latch)) {
+    player.latch = true;
+    const origin = look.first ? camera.position.clone() : camera.position.clone().addScaledVector(camDir, camera.position.distanceTo(new THREE.Vector3(player.x, player.y + 1.4, player.z)) + 0.5);
+    const r = weapons.fire({ x: player.x, z: player.z, h: player.h }, camDir, origin, Police.getCops(), look.first, colliders());
+    if (r && r.melee) player.punchT = 0.4;
+    if (r) { player.aimT = 1.4; if (!r.melee) weapons.flash.position.copy(origin).addScaledVector(camDir, 1.0); }
   }
+  if (!wantFire) player.latch = false;
+  if (gun && player.aimT > 0) player.h += clamp(angDiff(look.yaw, player.h), -14 * dt, 14 * dt);
   const hm = player.human;
-  animateHuman(hm, player.phase, player.moving ? 0.75 : 0);
-  if (player.punchT > 0.15) { hm.armR.rotation.x = -1.5; }
-  player.y += (world.groundY(player.x, player.z) - player.y) * Math.min(1, dt * 18);
+  animateHuman(hm, player.phase, player.moving ? (keys.ShiftLeft || keys.ShiftRight || touch.sprint ? 0.95 : 0.75) : 0, dt, player.moving ? (keys.ShiftLeft || keys.ShiftRight || touch.sprint ? 9 : 5) : 0, player.turnRate || 0);
+  if (gun) {                                           // raise the weapon arm(s)
+    const up = -1.45 - look.pitch * 0.8, two = weapons.current !== 'pistol';
+    hm.armR.rotation.x = up; hm.armR.rotation.z = 0.04; hm.elbowR.rotation.x = -0.04;
+    if (two) { hm.armL.rotation.x = up + 0.1; hm.armL.rotation.z = 0.28; hm.elbowL.rotation.x = -0.35; }
+    hm.spine.rotation.y += 0.12;
+  } else if (player.punchT > 0.12) { hm.armR.rotation.x = -1.5; hm.elbowR.rotation.x = -0.1; }
+  else if (player.punchT > 0) { hm.armR.rotation.x = -0.4; }
+  const fy = inside ? 0 : world.groundY(player.x, player.z);
+  player.y += (fy - player.y) * Math.min(1, dt * 18);
   hm.group.position.set(player.x, player.y, player.z); hm.group.rotation.y = player.h;
   hm.group.visible = !look.first;
 }
 
 function updateCar(dt) {
   const car = player.car, m = car.mesh, p = m.position;
-  const maxF = car.type === 'truck' ? 20 : car.type === 'police' ? 32 : 28;
+  const bike = car.type === 'bike', maxF = bike ? 38 : car.type === 'truck' ? 20 : car.type === 'police' ? 32 : 28;
   const up = keys.KeyW || keys.ArrowUp || touch.my > 0.2, down = keys.KeyS || keys.ArrowDown || touch.my < -0.2;
   const steer = clamp((keys.KeyA || keys.ArrowLeft ? 1 : 0) - (keys.KeyD || keys.ArrowRight ? 1 : 0) - touch.mx, -1, 1);
   const handbrake = keys.Space || touch.brake;
   let v = car.speed;
-  if (up) v += (v < 0 ? 24 : 11 * (1 - v / maxF)) * dt;
+  if (up) v += (v < 0 ? 24 : (bike ? 15 : 11) * (1 - v / maxF)) * dt;
   else if (down) v -= (v > 0.5 ? 24 : 9) * dt;
   else v -= Math.sign(v) * Math.min(Math.abs(v), 3.5 * dt);
   if (handbrake) v -= Math.sign(v) * Math.min(Math.abs(v), 28 * dt);
   v = clamp(v, -9, maxF);
   let h = m.rotation.y;
-  const rate = 1.9 / (1 + Math.abs(v) / 22) * clamp(Math.abs(v) / 5, 0, 1) * (v >= 0 ? 1 : -1);
+  const rate = (bike ? 2.5 : 1.9) / (1 + Math.abs(v) / 22) * clamp(Math.abs(v) / 5, 0, 1) * (v >= 0 ? 1 : -1);
   h += steer * rate * dt * (handbrake ? 1.5 : 1);
   const ox = p.x, oz = p.z;
   p.x += Math.sin(h) * v * dt; p.z += Math.cos(h) * v * dt;
@@ -250,7 +354,7 @@ function updateCar(dt) {
     const t = { x: c.x, z: c.z };
     if (pushOut(t, c.r)) { p.x += t.x - c.x; p.z += t.z - c.z; hit = true; }
   }
-  if (world.isBlocked(p.x, p.z, 1.3)) { p.x = ox; p.z = oz; hit = true; }
+  if (world.isBlocked(p.x, p.z, bike ? 0.8 : 1.3)) { p.x = ox; p.z = oz; hit = true; }
   if (hit) v *= 0.45;
   // other vehicles
   for (const o of traffic.cars) {
@@ -284,7 +388,10 @@ function updateCar(dt) {
   }
   car.speed = v; spinWheels(car, dt);
   player.x = p.x; player.z = p.z; player.h = h;
-  player.human.group.visible = false;
+  if (bike) {
+    car.lean = (car.lean || 0) + (-steer * Math.min(1, Math.abs(v) / 14) * 0.5 - (car.lean || 0)) * Math.min(1, dt * 6); m.rotation.z = car.lean;
+    animateHuman(player.human, 0, 0, dt, Math.abs(v), -steer * 0.6); player.human.group.visible = true;
+  } else player.human.group.visible = false;
 }
 
 // ----------------------------------------------------------------- camera
@@ -301,14 +408,17 @@ function updateCamera(dt) {
   if (look.first) { camera.position.copy(pos); camera.lookAt(pos.clone().add(dir)); }
   else {
     const tgt = new THREE.Vector3(player.x, targetY, player.z);
-    let dist = player.mode === 'car' ? (player.car.type === 'truck' ? 11 : 8.5) : 4.2;
+    let dist = player.mode === 'car' ? (player.car.type === 'truck' ? 11 : player.car.type === 'bike' ? 6 : 8.5) : inside ? 3 : 4.2;
     for (let d = 0.6; d <= dist; d += 0.5) {          // pull the camera in front of walls
       const x = tgt.x - dir.x * d, y = tgt.y - dir.y * d, z = tgt.z - dir.z * d;
+      if (inside) { const b = inside.int.bounds; if (x < b.x0 || x > b.x1 || z < b.z0 || z > b.z1 + 0.3 || y > inside.int.H - 0.2) { dist = Math.max(0.8, d - 0.6); break; } continue; }
       if (y < player.y + 0.15 || world.buildings.some(b => x > b.x0 - 0.3 && x < b.x1 + 0.3 && z > b.z0 - 0.3 && z < b.z1 + 0.3 && y < b.h)) { dist = Math.max(1.2, d - 0.6); break; }
     }
     camera.position.set(tgt.x - dir.x * dist, Math.max(0.4, tgt.y - dir.y * dist), tgt.z - dir.z * dist);
     camera.lookAt(tgt);
   }
+  for (const k in viewMesh) { const on = k === weapons.current && look.first && player.mode === 'foot'; viewMesh[k].visible = on; if (on) viewMesh[k].position.set(0.2, -0.2 + weapons.kick * 0.01, -0.42 + weapons.kick * 0.09); }
+  for (const k in handMesh) if (k !== weapons.current || player.mode !== 'foot') handMesh[k].visible = false; else handMesh[k].visible = true;
 }
 
 // ------------------------------------------------------------- engine audio
@@ -337,16 +447,22 @@ function updateHud() {
   mobile.setMode(player.mode);
   hud.speed.textContent = player.mode === 'car' ? Math.round(Math.abs(player.car.speed) * 3.6) + ' km/h' : '';
   let prompt = '';
-  if (player.mode === 'car') prompt = isTouchDevice ? 'Tap ENTER / EXIT to leave the car' : 'F  exit vehicle';
+  if (inside) {
+    const n = nearNpc(), e = inside.int.exit;
+    if (n) prompt = (isTouchDevice ? 'Tap ENTER to talk to ' : 'F  talk to ') + n.name;
+    else if (Math.hypot(e.x - player.x, e.z - player.z) < 2.2) prompt = isTouchDevice ? 'Tap ENTER to leave' : 'F  leave ' + inside.door.name;
+  } else if (player.mode === 'foot' && nearestDoor()) { const d = nearestDoor(); prompt = (isTouchDevice ? 'Tap ENTER to go into ' : 'F  enter ') + d.name; }
+  else if (player.mode === 'car') prompt = isTouchDevice ? 'Tap ENTER / EXIT to leave the car' : 'F  exit vehicle';
   else {
-    for (const c of traffic.cars) if (!c.driven && Math.hypot(c.mesh.position.x - player.x, c.mesh.position.z - player.z) < 5.5) { prompt = (isTouchDevice ? 'Tap ENTER / EXIT to take ' : 'F  take ') + (c.type === 'police' ? 'police car' : c.type); break; }
+    for (const c of traffic.cars) if (!c.driven && Math.hypot(c.mesh.position.x - player.x, c.mesh.position.z - player.z) < 5.5) { prompt = (isTouchDevice ? 'Tap ENTER / EXIT to take ' : 'F  take ') + (c.type === 'police' ? 'police car' : c.type === 'bike' ? 'motorcycle' : c.type); break; }
   }
   hud.prompt.textContent = prompt;
-  hud.cross.style.display = look.first && player.mode === 'foot' ? 'block' : 'none';
+  hud.cross.style.display = player.mode === 'foot' && (look.first || !weapons.def.melee) ? 'block' : 'none';
+  const wh = $('weapon-hud'); if (wh) wh.textContent = player.mode === 'foot' ? weapons.hudText() : '';
   hud.cam.textContent = look.first ? 'FIRST PERSON (V)' : 'THIRD PERSON (V)';
-  let zone = 'Open Sea';
-  if (world.onBridge(player.x, player.z, 0)) zone = 'Blacktop Bridge';
-  for (const i of world.islands) if (Math.abs(player.x - i.cx) < i.hw + 25 && Math.abs(player.z - i.cz) < i.hd + 25) zone = i.name;
+  let zone = inside ? inside.door.name : 'Open Sea';
+  if (!inside && world.onBridge(player.x, player.z, 0)) zone = 'Blacktop Bridge';
+  if (!inside) for (const i of world.islands) if (Math.abs(player.x - i.cx) < i.hw + 25 && Math.abs(player.z - i.cz) < i.hd + 25) zone = i.name;
   hud.zone.textContent = zone;
 }
 
@@ -381,13 +497,17 @@ function frame() {
     peds.update(dt, focus);
     Police.update(dt);
     world.update(dt, focus);
+    weapons.update(dt, { x: player.x, z: player.z, inside: !!inside, onPickup: (n) => toast('Picked up: ' + n) });
+    syncWeaponMeshes();
+    if (inside) inside.int.update(dt, player.x, player.z, time);
+    if (dlg.t > 0) { dlg.t -= dt; if (dlg.t <= 0) { const el = $('dialogue'); if (el) el.style.display = 'none'; } }
     updateEngine();
     updateHud();
   }
   updateCamera(dt);
   if (ui.isMapOpen()) ui.drawMap(player, Police.getCops(), Police.isWanted(), time);
-  if (post) post.composer.render(); else renderer.render(scene, camera);
+  if (inside) renderer.render(iScene, camera); else if (post) post.composer.render(); else renderer.render(scene, camera);
 }
 { const l = $('loading'); if (l) l.remove(); }
 frame();
-window.GLA = { Police, player, world, traffic, peds, ui };   // handy for debugging in the console
+window.GLA = { Police, player, world, traffic, peds, ui, weapons, interiors };   // handy for debugging in the console
