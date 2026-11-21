@@ -308,3 +308,77 @@ export function boxUV(geo, w, h, d, tu, tv = tu) {
   for (let k = 0; k < 6; k++) for (let v = k * 4; v < k * 4 + 4; v++) uv.setXY(v, uv.getX(v) * f[k][0] / tu, uv.getY(v) * f[k][1] / tv);
   return geo;
 }
+
+// ====================================================== Update 1.3 additions
+// ---- wind: sways grass, trees and palms in the vertex shader (one shared time uniform)
+export const WIND = { time: { value: 0 } };
+export function applyWind(mat, { amp = 0.3, height = 1, freq = 1.6 } = {}) {
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = WIND.time;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uTime;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        vec4 wp_ = vec4(transformed, 1.0);
+        #ifdef USE_INSTANCING
+          wp_ = instanceMatrix * wp_;
+        #endif
+        float hh_ = clamp(transformed.y / ${height.toFixed(2)}, 0.0, 1.5);
+        float w_ = sin(uTime * ${freq.toFixed(2)} + wp_.x * 0.31 + wp_.z * 0.23) + 0.5 * sin(uTime * ${(freq * 2.7).toFixed(2)} + wp_.x * 0.9 - wp_.z * 0.7);
+        transformed.x += w_ * ${amp.toFixed(3)} * hh_ * hh_;
+        transformed.z += w_ * ${(amp * 0.6).toFixed(3)} * hh_ * hh_;`);
+  };
+  mat.customProgramCacheKey = () => 'wind' + amp + height + freq;
+  return mat;
+}
+
+// ---- painted face (maps onto an ellipsoid head; the front of the face sits at u = 0.25)
+const faceCache = new Map();
+const hex = (n) => '#' + n.toString(16).padStart(6, '0');
+export function faceTexture(skin, female, hair, eye = 0x4a3220, lip = 0xb0605a) {
+  const key = [skin, female, hair, eye, lip].join('_');
+  if (faceCache.has(key)) return faceCache.get(key);
+  const tex = canvasTex(512, 256, (g, w, h) => {
+    g.fillStyle = hex(skin); g.fillRect(0, 0, w, h);
+    const sh = g.createLinearGradient(0, 0, 0, h); sh.addColorStop(0, 'rgba(255,230,210,0.10)'); sh.addColorStop(1, 'rgba(90,40,30,0.12)'); g.fillStyle = sh; g.fillRect(0, 0, w, h);
+    const blob = (x, y, rx, ry, col) => { g.save(); g.translate(x, y); g.scale(rx, ry); const r = g.createRadialGradient(0, 0, 0, 0, 0, 1); r.addColorStop(0, col); r.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = r; g.beginPath(); g.arc(0, 0, 1, 0, 6.3); g.fill(); g.restore(); };
+    for (const s of [-1, 1]) {
+      blob(128 + s * 36, 144, 24, 16, female ? 'rgba(230,110,110,0.20)' : 'rgba(200,100,90,0.12)');       // cheeks
+      blob(128 + s * 23, 119, 20, 12, 'rgba(70,40,40,0.20)');                                               // eye sockets
+    }
+    blob(128, 146, 9, 12, 'rgba(110,60,45,0.22)'); blob(128, 160, 22, 9, 'rgba(120,60,50,0.10)');
+    for (const s of [-1, 1]) {
+      const ex = 128 + s * 23, ey = 120;
+      g.fillStyle = '#f3eeea'; g.beginPath(); g.ellipse(ex, ey, 11, 5.5, 0, 0, 6.3); g.fill();
+      g.fillStyle = hex(eye); g.beginPath(); g.arc(ex, ey, 5, 0, 6.3); g.fill();
+      g.fillStyle = '#080808'; g.beginPath(); g.arc(ex, ey, 2.4, 0, 6.3); g.fill();
+      g.fillStyle = 'rgba(255,255,255,0.9)'; g.beginPath(); g.arc(ex - 1.6, ey - 1.8, 1.2, 0, 6.3); g.fill();
+      g.strokeStyle = '#24150f'; g.lineWidth = female ? 3 : 2; g.beginPath(); g.ellipse(ex, ey + 0.5, 11.5, 6.2, 0, Math.PI * 1.05, Math.PI * 1.95); g.stroke();
+      g.strokeStyle = 'rgba(120,70,60,0.5)'; g.lineWidth = 1.2; g.beginPath(); g.ellipse(ex, ey + 0.5, 11, 5.8, 0, 0.15, Math.PI - 0.15); g.stroke();
+      g.strokeStyle = hex(hair); g.lineWidth = female ? 3.2 : 4.6; g.lineCap = 'round';
+      g.beginPath(); g.moveTo(ex - s * 12, 108 + (s > 0 ? 1 : 1)); g.quadraticCurveTo(ex, 102 - (female ? 2 : 0), ex + s * 12, 107); g.stroke();
+    }
+    g.fillStyle = 'rgba(60,30,25,0.55)'; g.beginPath(); g.arc(122, 153, 2, 0, 6.3); g.arc(134, 153, 2, 0, 6.3); g.fill();
+    g.strokeStyle = 'rgba(255,235,220,0.18)'; g.lineWidth = 3; g.beginPath(); g.moveTo(128, 124); g.lineTo(128, 146); g.stroke();
+    g.fillStyle = hex(lip); g.beginPath(); g.ellipse(128, 169, 13, female ? 3.6 : 2.8, 0, Math.PI, 0); g.fill();
+    g.beginPath(); g.ellipse(128, 173, 12, female ? 5 : 3.8, 0, 0, Math.PI); g.fill();
+    g.strokeStyle = 'rgba(70,25,25,0.7)'; g.lineWidth = 1.4; g.beginPath(); g.moveTo(116, 171); g.quadraticCurveTo(128, 173.5, 140, 171); g.stroke();
+  }, { repeat: false });
+  faceCache.set(key, tex); return tex;
+}
+
+// ---- hair: strand texture with alpha (cards) or solid (cap)
+const hairCache = new Map();
+export function hairTexture(color, opaque) {
+  const key = color + '_' + opaque;
+  if (hairCache.has(key)) return hairCache.get(key);
+  const base = new THREE.Color(color);
+  const tex = canvasTex(128, 256, (g, w, h) => {
+    if (opaque) { g.fillStyle = hex(color); g.fillRect(0, 0, w, h); } else g.clearRect(0, 0, w, h);
+    for (let i = 0; i < 160; i++) {
+      const x = Math.random() * w, l = 0.55 + base.getHSL({}).l * 0.8, a = 0.35 + Math.random() * 0.5;
+      g.strokeStyle = `hsla(${Math.round(base.getHSL({}).h * 360)},${Math.round(base.getHSL({}).s * 100)}%,${Math.round(Math.min(90, 10 + Math.random() * 40 * l + base.getHSL({}).l * 60))}%,${a})`;
+      g.lineWidth = 1 + Math.random() * 2; g.beginPath(); g.moveTo(x, 0); g.bezierCurveTo(x + rand(-8, 8), h * 0.35, x + rand(-10, 10), h * 0.7, x + rand(-6, 6), h * (opaque ? 1 : 0.85 + Math.random() * 0.15)); g.stroke();
+    }
+  });
+  hairCache.set(key, tex); return tex;
+}
