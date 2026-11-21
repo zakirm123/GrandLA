@@ -84,6 +84,10 @@ export function createInteriors(scene) {
 
     FURNISH[kind] ? FURNISH[kind]({ W, D, H, put, add, at, solid, npcs, group, OX, OZ, updaters }) : FURNISH.shop({ W, D, H, put, add, at, solid, npcs, group, OX, OZ, updaters });
 
+    for (const n of npcs) {                       // NPCs: make them visible in the room (positions given relative to the room unless abs)
+      if (!n.abs) { n.x += OX; n.z += OZ; }
+      n.human.group.visible = true; n.human.group.position.set(n.x, 0, n.z); n.human.group.rotation.y = n.h; group.add(n.human.group);
+    }
     return {
       kind, group, colliders, npcs, lights, bounds: { x0: OX - W / 2 + 0.5, x1: OX + W / 2 - 0.5, z0: OZ - D / 2 + 0.5, z1: OZ + D / 2 - 0.4 }, H,
       spawn: { x: OX, z: OZ + D / 2 - 2.6, h: Math.PI }, exit: { x: OX, z: OZ + D / 2 - 1.3 },
@@ -187,7 +191,7 @@ const FURNISH = {
     const win = new THREE.Mesh(new THREE.PlaneGeometry(W - 4, H - 0.8), new THREE.MeshStandardMaterial({ map: sky, emissiveMap: sky, emissive: 0xffffff, emissiveIntensity: 0.9 })); win.position.set(OX, H / 2, OZ + D / 2 - 0.02); win.rotation.y = Math.PI; group.add(win);   // (behind the door wall is hidden by the door wall itself)
     const winN = win.clone(); winN.position.set(OX - 0.0, H / 2, OZ - D / 2 + 0.02); winN.rotation.y = 0; winN.scale.set(0.5, 0.8, 1); winN.position.x = OX + 8; group.add(winN);
     // Luna herself
-    const luna = makeLuna(); luna.group.visible = true; npcs.push({ human: luna, x: OX - 4.5, z: OZ + 2.5, h: Math.PI * 0.8, name: 'Luna', lines: LUNA_LINES, isLuna: true });
+    const luna = makeLuna(); luna.group.visible = true; npcs.push({ human: luna, x: OX - 3.2, z: OZ + 3.5, h: Math.PI * 0.9, name: 'Luna', lines: LUNA_LINES, isLuna: true, abs: true });
     luna.group.userData.isLuna = true;
   },
 };
