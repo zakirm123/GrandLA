@@ -2,7 +2,7 @@
 // cornices, setback towers, rooftops with AC units / tanks / antennas) and the police station.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { facadeMaterial, canvasTex, nightEmissive } from './gfx.js';
+import { facadeMaterial, canvasTex, nightEmissive, nightOpacity } from './gfx.js';
 
 export const BASE_Y = 0.17;
 const PODIUM = 4;                      // podium (shop floor) height, one storey
@@ -51,8 +51,29 @@ const styleFor = (h, R) => {
   return h > 46 ? p(['glass', 'glass', 'office']) : h > 24 ? p(['office', 'stone', 'concrete', 'glass']) : p(['brick', 'brick', 'concrete', 'stone']);
 };
 
+// ------------------------------------------------------------------ doors / building kinds
+const KIND_COLORS = { shop: 0x2ecc71, diner: 0xff9f1c, office: 0x3498db, apartment: 0xb388ff, bank: 0xf1c40f, hotel: 0xe056a0, gym: 0xe74c3c, station: 0x3a6bff, luna: 0xff4fa3 };
+const NAMES = {
+  shop: ['Corner Store', 'Blacktop Mart', '24/7 Convenience', 'Vinyl Records', 'Pawn & Loan'], diner: ["Larry's Diner", 'Route 9 Diner', 'Neon Noodle Bar'],
+  office: ['Blacktop Offices', 'Skyline Tower', 'Meridian Offices', 'Harbor Trading Co.'], apartment: ['Harbor Apartments', 'Elm Court Apts', 'Sunset Flats', 'Brickhouse Lofts'],
+  bank: ['City Savings Bank', 'First Blacktop Bank'], hotel: ['Grand Blacktop Hotel', 'Seaview Hotel'], gym: ['Iron Works Gym', 'Fit City Gym'],
+};
+const KINDS = { brick: ['apartment', 'apartment', 'diner', 'shop'], concrete: ['shop', 'gym', 'office', 'diner'], stone: ['bank', 'hotel', 'shop'], glass: ['office', 'office', 'bank'], office: ['office', 'bank', 'hotel'] };
+const doorMat = new THREE.MeshStandardMaterial({ color: 0x2a1d14, roughness: 0.45, metalness: 0.25 });
+const frameMat = new THREE.MeshStandardMaterial({ color: 0xcfcfcf, roughness: 0.6, metalness: 0.3 });
+const signMats = {};
+const signMat = (k) => (signMats[k] ??= new THREE.MeshStandardMaterial({ color: KIND_COLORS[k], emissive: KIND_COLORS[k], emissiveIntensity: 1.6 }));
+const doorGeos = [new THREE.BoxGeometry(1.7, 2.7, 0.16), new THREE.BoxGeometry(2.1, 0.2, 0.2), new THREE.BoxGeometry(2.9, 0.12, 1.2), new THREE.BoxGeometry(1.0, 0.24, 0.06)];
+function addDoor(group, d, kind, baseY = 0) {
+  const z = d / 2, add = (g, m, x, y, zz) => { const o = new THREE.Mesh(g, m); o.position.set(x, y + baseY, zz); o.castShadow = true; group.add(o); };
+  add(doorGeos[0], doorMat, 0, 1.35, z + 0.02); add(doorGeos[1], frameMat, 0, 2.8, z + 0.02);
+  add(doorGeos[2], frameMat, 0, 3.0, z + 0.6); add(doorGeos[3], signMat(kind), 0, 3.3, z + 0.05);
+}
+
 export function buildBuildings(scene, ctx) {
   const { ISLANDS, STATION_BLOCK, R, colliders, buildings } = ctx;
+  const doors = ctx.doors;
+  const pickR = (a) => a[(R() * a.length) | 0];
   const shop = [0xffffff, 0xffe9cf, 0xdfeaff].map((t) => facadeMaterial('shop', t));
   const concrete = roofMaterial();
   let station = { x: 40, z: 70 };
@@ -79,6 +100,9 @@ export function buildBuildings(scene, ctx) {
     } else if (h > 8) parts.push(bx(w + 0.5, 0.35, d + 0.5, 0, h - 0.17, 0));
     if (parts.length) { const c = new THREE.Mesh(mergeGeometries(parts.map(NI)), concrete); c.castShadow = c.receiveShadow = true; group.add(c); }
     const rp = roofParts(rx0 - cx, rz0 - cz, rx1 - cx, rz1 - cz, top, R, tall); group.add(rp);
+    const kind = h >= 44 ? pickR(['office', 'hotel', 'bank', 'office']) : pickR(KINDS[style]);
+    addDoor(group, d, kind);
+    doors.push({ x: cx, z: z1, ox: cx, oz: z1 + 2.4, kind, name: pickR(NAMES[kind]), id: doors.length });
     scene.add(group);
     colliders.push({ min: { x: x0, z: z0 }, max: { x: x1, z: z1 } });
     buildings.push({ x0, z0, x1, z1, h: top + 1 });
@@ -101,12 +125,46 @@ export function buildBuildings(scene, ctx) {
     const red = new THREE.MeshStandardMaterial({ color: 0xff2030, emissive: 0xff2030, emissiveIntensity: 2.5 }), blu = new THREE.MeshStandardMaterial({ color: 0x2a60ff, emissive: 0x2a60ff, emissiveIntensity: 2.5 });
     add(new THREE.BoxGeometry(2.4, 0.9, 2.4), red, -3, 14.85, 0); add(new THREE.BoxGeometry(2.4, 0.9, 2.4), blu, 3, 14.85, 0);
     scene.add(g);
+    addDoor(g, d, 'station');
+    doors.push({ x: cx, z: z1, ox: cx, oz: z1 + 2.4, kind: 'station', name: 'Police Station', id: doors.length });
     colliders.push({ min: { x: x0, z: z0 }, max: { x: x1, z: z1 } }); buildings.push({ x0, z0, x1, z1, h: 15 });
+  }
+
+  // ---- Luna's villa (Palm Cove): modern two-storey house with a pool and a glowing sign
+  function addVilla(x0, z0, x1, z1) {
+    const bw = 30, bd = 20, bx0 = x0 + 2, bz0 = z0 + 4, cx = bx0 + bw / 2, cz = bz0 + bd / 2, g = new THREE.Group(); g.position.set(cx, BASE_Y, cz);
+    const white = new THREE.MeshStandardMaterial({ color: 0xf2f1ee, roughness: 0.55 }), wood = new THREE.MeshStandardMaterial({ color: 0x5a3a24, roughness: 0.6 });
+    const glass = new THREE.MeshPhysicalMaterial({ color: 0x14212e, metalness: 0.9, roughness: 0.05 });
+    const add = (geo, m, x, y, z) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = o.receiveShadow = true; g.add(o); return o; };
+    add(new THREE.BoxGeometry(bw, 4.4, bd), white, 0, 2.2, 0);
+    add(new THREE.BoxGeometry(bw - 6, 3.6, bd - 4), wood, 3, 6.2, 0);
+    add(new THREE.BoxGeometry(bw + 1.2, 0.35, bd + 1.2), white, 0, 4.55, 0); add(new THREE.BoxGeometry(bw - 4.8, 0.35, bd - 2.8), white, 3, 8.2, 0);
+    for (let i = 0; i < 4; i++) add(new THREE.BoxGeometry(5, 3.2, 0.2), glass, -bw / 2 + 4.5 + i * 7, 2.0, bd / 2 + 0.02);
+    for (let i = 0; i < 3; i++) add(new THREE.BoxGeometry(5, 2.2, 0.2), glass, -bw / 2 + 9 + i * 7.5, 6.2, (bd - 4) / 2 + 0.02);
+    add(new THREE.BoxGeometry(bw - 6, 0.9, 0.12), glass, 3, 4.95, bd / 2 + 1.4);                 // balcony rail
+    add(new THREE.BoxGeometry(bw - 6, 0.12, 2.8), white, 3, 4.5, bd / 2 + 0.2);                  // balcony floor
+    addDoor(g, bd, 'luna');
+    const signTex = canvasTex(512, 128, (c) => { c.fillStyle = '#12060f'; c.fillRect(0, 0, 512, 128); c.shadowColor = '#ff4fa3'; c.shadowBlur = 22; c.fillStyle = '#ff7cc0'; c.font = 'bold 86px Arial'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('LUNA', 256, 66); }, { repeat: false });
+    const sign = new THREE.MeshStandardMaterial({ map: signTex, emissiveMap: signTex, emissive: 0xffffff, emissiveIntensity: 1.1 });
+    add(new THREE.PlaneGeometry(7, 1.8), sign, 0, 3.7, bd / 2 + 0.1);
+    scene.add(g);
+    // pool
+    const px0 = bx0 + bw + 4, pz0 = bz0 + 2, pw = x1 - px0 - 1, pd = 18;
+    const pool = new THREE.Mesh(new THREE.BoxGeometry(pw, 0.05, pd), new THREE.MeshStandardMaterial({ color: 0x39b6e8, roughness: 0.05, metalness: 0, emissive: 0x0a5a80, emissiveIntensity: 0.6 }));
+    pool.position.set(px0 + pw / 2, BASE_Y + 0.03, pz0 + pd / 2); scene.add(pool);
+    const edge = new THREE.MeshStandardMaterial({ color: 0xf5f5f0, roughness: 0.5 });
+    for (const [w, d, x, z] of [[pw + 1, 0.5, 0, -pd / 2 - 0.25], [pw + 1, 0.5, 0, pd / 2 + 0.25], [0.5, pd, -pw / 2 - 0.25, 0], [0.5, pd, pw / 2 + 0.25, 0]]) {
+      const e = new THREE.Mesh(new THREE.BoxGeometry(w, 0.14, d), edge); e.position.set(px0 + pw / 2 + x, BASE_Y + 0.07, pz0 + pd / 2 + z); scene.add(e);
+    }
+    colliders.push({ min: { x: bx0, z: bz0 }, max: { x: bx0 + bw, z: bz0 + bd } }); colliders.push({ min: { x: px0 - 0.4, z: pz0 - 0.4 }, max: { x: px0 + pw + 0.4, z: pz0 + pd + 0.4 } });
+    buildings.push({ x0: bx0, z0: bz0, x1: bx0 + bw, z1: bz0 + bd, h: 9 }, { x0: px0, z0: pz0, x1: px0 + pw, z1: pz0 + pd, h: 0.6 });
+    doors.push({ x: cx, z: bz0 + bd, ox: cx, oz: bz0 + bd + 2.4, kind: 'luna', name: "Luna's House", id: doors.length });
   }
 
   for (const isl of ISLANDS) {
     for (let i = 0; i + 1 < isl.xs.length; i++) for (let j = 0; j + 1 < isl.zs.length; j++) {
       const bx0 = isl.xs[i] + 13, bx1 = isl.xs[i + 1] - 13, bz0 = isl.zs[j] + 13, bz1 = isl.zs[j + 1] - 13;
+      if (isl.name === 'Palm Cove' && i === 1 && j === 0) { addVilla(bx0, bz0, bx1, bz1); continue; }
       if (isl === ISLANDS[0] && isl.xs[i] === STATION_BLOCK.x0 && isl.zs[j] === STATION_BLOCK.z0) {
         addStation(bx0 + 6, bz0 + 6, bx1 - 6, bz1 - 6); station = { x: (bx0 + bx1) / 2, z: bz1 + 3 }; continue;
       }
@@ -120,5 +178,5 @@ export function buildBuildings(scene, ctx) {
       }
     }
   }
-  return station;
+  return { station, doors };
 }
