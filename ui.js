@@ -67,7 +67,7 @@ export function createUI(world, hooks) {
 
   // ------------------------------------------------------------------ map
   const cv = $('map-canvas'), ctx = cv.getContext('2d');
-  const B = { x0: -600, x1: 600, z0: -260, z1: 560 };
+  const B = { x0: -600, x1: 600, z0: -560, z1: 560 };
   let layer = null, sc = 1, ox = 0, oz = 0;
   const wx = (x) => ox + (x - B.x0) * sc, wz = (z) => oz + (z - B.z0) * sc;
 
@@ -95,6 +95,8 @@ export function createUI(world, hooks) {
     for (const i of world.islands) g.fillText(i.name.toUpperCase(), wx(i.cx), wz(i.cz - i.hd - 32));
     g.fillStyle = '#3d6fe0'; g.fillRect(wx(world.station.x) - 7, wz(world.station.z) - 7, 14, 14);
     g.fillStyle = '#fff'; g.fillText('P', wx(world.station.x), wz(world.station.z) + 5);
+    const lh = (world.doors || []).find(d => d.kind === 'luna');
+    if (lh) { g.fillStyle = '#ff4fa3'; g.beginPath(); g.arc(wx(lh.x), wz(lh.z), 6, 0, 7); g.fill(); g.fillStyle = '#fff'; g.fillText("LUNA'S HOUSE", wx(lh.x), wz(lh.z) - 10); }
   }
   addEventListener('resize', () => { layer = null; });
 
