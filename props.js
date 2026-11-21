@@ -1,7 +1,7 @@
 // props.js - Update 1.2: streetlights with night glow, trees, palms, benches, bins and hydrants.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { glowTexture, nightEmissive, nightOpacity } from './gfx.js';
+import { glowTexture, nightEmissive, nightOpacity, applyWind, canvasTex } from './gfx.js';
 import { BASE_Y } from './buildings.js';
 
 const NI = (g) => (g.index ? g.toNonIndexed() : g);
@@ -103,9 +103,44 @@ export function buildProps(scene, ctx) {
       palmSpots.push({ x, y: 0, z, ry: R() * 6.28, s: 0.85 + R() * 0.55 }); n++;
     }
   }
-  const trees = new THREE.InstancedMesh(treeGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }), treeSpots.length);
-  const palms = new THREE.InstancedMesh(palmGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide }), palmSpots.length);
+  const trees = new THREE.InstancedMesh(treeGeometry(), applyWind(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }), { amp: 0.16, height: 5 }), treeSpots.length);
+  const palms = new THREE.InstancedMesh(palmGeometry(), applyWind(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide }), { amp: 0.28, height: 7, freq: 1.9 }), palmSpots.length);
   place(trees, treeSpots); place(palms, palmSpots); trees.castShadow = palms.castShadow = true; scene.add(trees, palms);
+
+  // ------------------------------------------------------ lawns with swaying grass
+  const lawnTex = canvasTex(256, 256, (g, w, h) => {
+    g.fillStyle = '#3f7a35'; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 5000; i++) { g.fillStyle = `hsla(${95 + Math.random() * 30},${40 + Math.random() * 25}%,${22 + Math.random() * 22}%,0.5)`; g.fillRect(Math.random() * w, Math.random() * h, 1.5, 3 + Math.random() * 4); }
+  });
+  lawnTex.repeat.set(4, 4);
+  const lawnMat = new THREE.MeshStandardMaterial({ map: lawnTex, roughness: 1 });
+  const lawns = [], PATCH = 14;
+  for (const isl of ISLANDS) {
+    const want = isl.hw > 150 ? 12 : 4;
+    for (let tries = 0, n = 0; tries < 900 && n < want; tries++) {
+      const x = isl.cx + (R() * 2 - 1) * (isl.hw - PATCH), z = isl.cz + (R() * 2 - 1) * (isl.hd - PATCH);
+      const corners = [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([a, b]) => [x + a * PATCH / 2, z + b * PATCH / 2]);
+      if (!corners.every(([cx, cz]) => inSlab(cx, cz) && distToRoads(cx, cz) > 10)) continue;
+      if (colliders.some((c) => x + PATCH / 2 + 2 > c.min.x && x - PATCH / 2 - 2 < c.max.x && z + PATCH / 2 + 2 > c.min.z && z - PATCH / 2 - 2 < c.max.z)) continue;
+      if (lawns.some((l) => Math.abs(l.x - x) < PATCH + 2 && Math.abs(l.z - z) < PATCH + 2)) continue;
+      lawns.push({ x, z }); n++;
+    }
+  }
+  const lawnGeo = new THREE.PlaneGeometry(PATCH, PATCH).rotateX(-Math.PI / 2);
+  const lawnMesh = new THREE.InstancedMesh(lawnGeo, lawnMat, lawns.length);
+  place(lawnMesh, lawns.map((l) => ({ x: l.x, y: BASE_Y + 0.012, z: l.z }))); lawnMesh.receiveShadow = true; scene.add(lawnMesh);
+  const PER = 900, bladeGeo = (() => {                       // tapered blade, dark root -> light tip
+    const g = new THREE.BufferGeometry(), v = [-0.028, 0, 0, 0.028, 0, 0, -0.02, 0.28, 0, 0.02, 0.28, 0, 0, 0.58, 0];
+    const c = [0.16, 0.3, 0.1, 0.16, 0.3, 0.1, 0.3, 0.55, 0.18, 0.3, 0.55, 0.18, 0.5, 0.75, 0.28];
+    g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
+    g.setIndex([0, 1, 3, 0, 3, 2, 2, 3, 4]); g.computeVertexNormals(); return g;
+  })();
+  const grassMat = applyWind(new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.85 }), { amp: 0.5, height: 0.58, freq: 2.2 });
+  const grass = new THREE.InstancedMesh(bladeGeo, grassMat, Math.max(1, lawns.length * PER));
+  const blades = [];
+  for (const l of lawns) for (let i = 0; i < PER; i++) blades.push({ x: l.x + (R() - 0.5) * PATCH, z: l.z + (R() - 0.5) * PATCH, y: BASE_Y + 0.012, ry: R() * 6.28, s: 0.7 + R() * 0.8 });
+  place(grass, blades); grass.frustumCulled = false; scene.add(grass);
+  out.grass = grass; out.grassTotal = blades.length;
   out.lamps = lamps.length;
   return out;
 }
