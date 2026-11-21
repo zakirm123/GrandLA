@@ -144,6 +144,8 @@ export function makeVehicle(type = 'sedan', color) {
   const g = new THREE.Group(); g.userData.type = type;
   if (type === 'truck') { buildTruck(g); return g; }
   if (type === 'bike') { buildBike(g, color); return g; }
+  if (type === 'boat') { buildBoat(g, color); return g; }
+  if (type === 'jetski') { buildJetski(g, color); return g; }
   const D = DEFS[type] || DEFS.sedan, P = carParts(DEFS[type] ? type : 'sedan');
   const base = type === 'police' ? 0x14161b : type === 'taxi' ? 0xf1b40a : (color ?? pick(PAINTS));
   const add = (geo, mat, shadow) => { const m = new THREE.Mesh(geo, mat); m.castShadow = !!shadow; g.add(m); return m; };
@@ -367,6 +369,37 @@ function buildBike(g, color) {
   addWheels(g, [[0, -0.78], [0, 0.82]], 0.33, 0.15);
   g.userData.roofY = 1.1; g.userData.barWidth = 0.3; g.userData.seat = new THREE.Vector3(0, 0.83, -0.3);
   addBeam(g, 0.95, 1.6, 10);
+}
+
+// ================================================================ boats
+const hullGeo = (pts, h) => { const s = new THREE.Shape(); pts.forEach(([x, z], i) => (i ? s.lineTo(x, -z) : s.moveTo(x, -z))); s.closePath(); return new THREE.ExtrudeGeometry(s, { depth: h, bevelEnabled: false }).rotateX(-Math.PI / 2); };
+const foamMat = () => M('foam', () => new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false }));
+function addWake(g, len, w, wl) {
+  const wk = new THREE.Group();
+  for (const s of [-1, 1]) { const p = new THREE.Mesh(new THREE.PlaneGeometry(w, len).rotateX(-Math.PI / 2).translate(0, wl, -len / 2), foamMat()); p.rotation.y = s * 0.22; wk.add(p); }
+  g.add(wk); g.userData.wake = wk;
+}
+function buildBoat(g, color) {
+  const c = color ?? pick([0xf2f2f2, 0x1f5fa8, 0xb3202b, 0x111114]), add = (geo, mat, sh) => { const m = new THREE.Mesh(geo, mat); m.castShadow = !!sh; g.add(m); return m; };
+  add(hullGeo([[-0.9, -2.5], [0.9, -2.5], [1.0, -0.3], [0.0, 2.7], [-1.0, -0.3]], 0.75), paintMat(c), true);
+  add(hullGeo([[-0.93, -2.5], [0.93, -2.5], [1.03, -0.3], [0.0, 2.75], [-1.03, -0.3]], 0.12).translate(0, 0.02, 0), paintMat(c === 0xf2f2f2 ? 0x1f5fa8 : 0xf2f2f2));        // waterline stripe
+  add(merge([bx(1.7, 0.05, 3.4, 0, 0.77, -0.7), bx(1.2, 0.05, 1.6, 0, 0.77, 1.3)]), paintMat(0xb08a5a));                                              // teak deck
+  add(merge([bx(0.9, 0.5, 0.7, 0, 1.02, 0.35), bx(1.3, 0.3, 0.55, 0, 0.95, -1.05), bx(0.35, 0.9, 0.35, 0, 0.7, -2.55)]), detailMat(), true);                // console, bench seat, outboard
+  add(bx(1.55, 0.5, 0.05, 0, 1.3, 0.8).rotateX(-0.55), glassMat());                                                                                  // windshield
+  add(merge([cyl2(0.015, 1.7, -0.9, 1.75, 0.15, 0)]), rimMat());
+  add(merge([bx(0.12, 0.08, 0.06, 0, 0.7, 2.4), bx(0.2, 0.05, 0.05, 0, 0.85, -2.5)]), headMat());
+  g.userData.roofY = 1.4; g.userData.barWidth = 0.35; g.userData.seat = new THREE.Vector3(0, 1.0, -0.55); g.userData.baseY = -0.85;
+  addWake(g, 7, 0.9, 0.15);
+}
+const cyl2 = (r, l, x, y, z) => new THREE.CylinderGeometry(r, r, l, 8).rotateZ(Math.PI / 2).translate(x + 0.85, y, z);
+function buildJetski(g, color) {
+  const c = color ?? pick([0xe8c21b, 0xd0302a, 0x1f9bd0, 0x22b573]), add = (geo, mat, sh) => { const m = new THREE.Mesh(geo, mat); m.castShadow = !!sh; g.add(m); return m; };
+  add(hullGeo([[-0.42, -1.15], [0.42, -1.15], [0.46, -0.2], [0.0, 1.3], [-0.46, -0.2]], 0.42), paintMat(c), true);
+  add(merge([bx(0.5, 0.18, 1.5, 0, 0.5, -0.2), bx(0.42, 0.26, 0.5, 0, 0.55, 0.85).rotateX(0.2)]), paintMat(0xf4f4f4), true);
+  add(merge([bx(0.34, 0.12, 0.85, 0, 0.64, -0.45), new THREE.CylinderGeometry(0.014, 0.014, 0.6, 8).rotateZ(Math.PI / 2).translate(0, 0.95, 0.55), bx(0.03, 0.32, 0.03, 0, 0.78, 0.55)]), detailMat(), true);
+  add(bx(0.4, 0.22, 0.04, 0, 0.88, 0.7).rotateX(-0.5), glassMat());
+  g.userData.roofY = 1.0; g.userData.barWidth = 0.25; g.userData.seat = new THREE.Vector3(0, 0.7, -0.4); g.userData.baseY = -0.65;
+  addWake(g, 5, 0.6, 0.0);
 }
 
 // ================================================================== weapons
